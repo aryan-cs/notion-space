@@ -117,9 +117,9 @@ You probably want, in order:
 
 1. **[README.md](README.md)** *(this file)* — five-minute orientation.
 2. **[PROPOSAL.md](PROPOSAL.md)** — the human-readable research roadmap. The three tracks, their goals, scopes, baselines, and expected outcomes. Approximately 20-minute read.
-3. **[docs/proof.pdf](docs/proof.pdf)** — the theoretical foundations. Formal definitions of the typed DAG, the executor's operational semantics, the four core theorems (determinism, order independence, termination, soundness), the capacity–depth decoupling argument, and the OOD generalisation theorem. Approximately 60–90-minute read. Read with pencil.
+3. **[docs/proof.pdf](docs/proof.pdf)** — the mathematical theory. Formal definitions of the typed DAG, the executor's operational semantics, the four core theorems (determinism, order independence, termination, soundness against the oracle), expressivity containment against a weight-tied graph transformer and a sequence transformer, the capacity–depth decoupling result, the local-context invariance principle and its consequences for depth generalisation, an MDP formulation for autonomous graph construction, and the formal statement of the library-extension problem.
 
-If you only have time for one section of the proof, read **§3 (The Graph-Structured Recurrent Executor)** and **§5 (Information-Theoretic Analysis)**. Those two sections contain the load-bearing claims.
+If you only have time for one section, read **§3 (The Graph-Structured Recurrent Executor)** and **§5 (Information-Theoretic Properties)**. Those two contain the load-bearing results.
 
 ---
 
