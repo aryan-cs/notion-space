@@ -569,7 +569,7 @@ Adding a new primitive $\tau_{K+1}$ to the library requires the processor to lea
   \item \emph{Plasticity.} Time to reach $1 - \eps$ accuracy on $\tau_{K+1}$ should be sublinear in $K$.
 \end{itemize}
 
-Standard tools---adapter layers~\cite{hu2021lora}, elastic-weight consolidation~\cite{kirkpatrick2017overcoming}, mixture-of-experts---trade these properties against each other. The shared-processor architecture commits to a single set of parameters for all primitives; reconciling stability and plasticity in this constrained setting is open.
+Standard tools---adapter layers~\cite{houlsby2019parameter}, low-rank adaptation~\cite{hu2021lora}, elastic-weight consolidation~\cite{kirkpatrick2017overcoming}, mixture-of-experts---trade these properties against each other. The shared-processor architecture commits to a single set of parameters for all primitives; reconciling stability and plasticity in this constrained setting is open.
 
 \subsection{Verification of invented primitives}
 
@@ -803,6 +803,11 @@ A general reinforcement learning algorithm that masters chess, shogi, and Go thr
 J.~Schulman et al.
 Proximal policy optimization algorithms.
 \emph{arXiv:1707.06347}, 2017.
+
+\bibitem{houlsby2019parameter}
+N.~Houlsby et al.
+Parameter-efficient transfer learning for NLP.
+\emph{ICML}, 2019.
 
 \bibitem{hu2021lora}
 E.~J. Hu et al.
