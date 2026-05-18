@@ -63,17 +63,15 @@
 \title{\bfseries The Notion-Based Reasoning System\\[0.3em]
 \large Compositional Execution via Dependency-Gated Recurrence}
 
-\date{}
-\author{}
+\author{Aryan Gupta\\[2pt]\href{mailto:aryan.cs.app@gmail.com}{\texttt{aryan.cs.app@gmail.com}}}
+\date{\today}
 
 \begin{document}
 \maketitle
 
 \begin{abstract}
-The Notion-Based Reasoning System (\NBRS) performs reasoning by traversing a typed directed acyclic graph of operations and resolving each operation node with a shared, capacity-limited neural processor invoked only when its inputs are available. This document develops the formal theory of the architecture. We formalise the executor as a deterministic state machine over a typed DAG and establish its core operational properties: argument availability is preserved as an invariant, the resulting computation is deterministic, order-independent across topological schedules, terminates in a number of node invocations linear in graph size, and reduces to oracle evaluation under a primitive-accurate processor. We contrast its inductive bias with a weight-tied graph transformer carrying a causal ancestor mask and with a sequence transformer over a serialised DAG, and prove an expressivity containment between the three. The executor's per-step input is bounded by the maximum primitive arity independently of graph depth; combined with a stochastic processor of per-invocation error $\eps$, this yields a capacity--depth decoupling: depth-$d$ graphs are resolved correctly with probability at least $(1-\eps)^d$ and per-step parameter count is constant in $d$. The processor sees only the local context of each node, which gives the architecture a clean local-context invariance principle and, under marginal-invariance of the local context across depths, a depth-independent expected per-node error. We extend the framework to autonomous graph construction as a Markov decision process with deterministic transitions and a polynomially-bounded action space, and we state the formal questions associated with extending the primitive library through subgraph abstraction.
+\noindent The Notion-Based Reasoning System (\NBRS) performs reasoning by traversing a typed directed acyclic graph of operations and resolving each operation node with a shared, capacity-limited neural processor invoked only when its inputs are available. This document develops the formal theory of the architecture. We formalise the executor as a deterministic state machine over a typed DAG and establish its core operational properties: argument availability is preserved as an invariant, the resulting computation is deterministic, order-independent across topological schedules, terminates in a number of node invocations linear in graph size, and reduces to oracle evaluation under a primitive-accurate processor. We contrast its inductive bias with a weight-tied graph transformer carrying a causal ancestor mask and with a sequence transformer over a serialised DAG, and prove an expressivity containment between the three. The executor's per-step input is bounded by the maximum primitive arity independently of graph depth; combined with a stochastic processor of per-invocation error $\eps$, this yields a capacity--depth decoupling: depth-$d$ graphs are resolved correctly with probability at least $(1-\eps)^d$ and per-step parameter count is constant in $d$. The processor sees only the local context of each node, which gives the architecture a clean local-context invariance principle and, under marginal-invariance of the local context across depths, a depth-independent expected per-node error. We extend the framework to autonomous graph construction as a Markov decision process with deterministic transitions and a polynomially-bounded action space, and we state the formal questions associated with extending the primitive library through subgraph abstraction.
 \end{abstract}
-
-\tableofcontents
 
 \section{Introduction}
 \label{sec:intro}
@@ -188,19 +186,24 @@ The Graph-Structured Recurrent Executor (\GSRE) is a deterministic state machine
 During execution, every node $n \in V$ is in one of five states drawn from $\mathcal{S} = \{\PENDING, \READY, \EXEC, \RESOLVED, \FAILED\}$, written $\NState(n) \in \mathcal{S}$. Once $\NState(n) = \RESOLVED$, the associated value $v_n \in \Val_{\mathsf{out}_{\tau_n}}$ is fixed for the remainder of execution.
 \end{definition}
 
-\begin{figure}[t]
+\begin{figure}[ht]
 \centering
-\begin{tikzpicture}[node distance=2.2cm and 3.2cm, every node/.style={font=\small}]
-\node[draw,rounded corners,minimum width=2.2cm,minimum height=0.9cm,fill=gray!10] (P) {\PENDING};
-\node[draw,rounded corners,minimum width=2.2cm,minimum height=0.9cm,fill=gray!10,right=of P] (R) {\READY};
-\node[draw,rounded corners,minimum width=2.2cm,minimum height=0.9cm,fill=gray!10,right=of R] (E) {\EXEC};
-\node[draw,rounded corners,minimum width=2.2cm,minimum height=0.9cm,fill=green!20,right=of E] (Re) {\RESOLVED};
-\node[draw,rounded corners,minimum width=2.2cm,minimum height=0.9cm,fill=red!15,below=of E] (F) {\FAILED};
+\begin{tikzpicture}[
+  >={Latex[length=2.2mm]},
+  every node/.style={font=\small},
+  state/.style={draw, circle, minimum size=1.7cm, inner sep=0pt, align=center, line width=0.6pt},
+  edgelbl/.style={font=\scriptsize, fill=white, inner sep=1pt}
+]
+\node[state, fill=gray!10] (P) at (0,0) {\PENDING};
+\node[state, fill=gray!10] (R) at (3.6,0) {\READY};
+\node[state, fill=gray!10] (E) at (7.2,0) {\EXEC};
+\node[state, fill=green!20] (Re) at (10.8,0) {\RESOLVED};
+\node[state, fill=red!15] (F) at (7.2,-3) {\FAILED};
 
-\draw[-{Latex[length=2mm]}] (P) -- node[above,font=\scriptsize]{all parents resolved} (R);
-\draw[-{Latex[length=2mm]}] (R) -- node[above,font=\scriptsize]{dispatched} (E);
-\draw[-{Latex[length=2mm]}] (E) -- node[above,font=\scriptsize]{$\NodeProc$ ok} (Re);
-\draw[-{Latex[length=2mm]}] (E) -- node[right,font=\scriptsize]{$\NodeProc$ fail} (F);
+\draw[->] (P) -- node[edgelbl,above]{parents resolved} (R);
+\draw[->] (R) -- node[edgelbl,above]{dispatched} (E);
+\draw[->] (E) -- node[edgelbl,above]{$\NodeProc$ ok} (Re);
+\draw[->] (E) -- node[edgelbl,right]{$\NodeProc$ fail} (F);
 \end{tikzpicture}
 \caption{The node-state machine. $\PENDING \to \READY$ is gated by a hard predicate on parent state; $\READY \to \EXEC$ by dispatch; $\EXEC \to \RESOLVED$ or $\EXEC \to \FAILED$ by the outcome of the node-processor call.}
 \label{fig:state-machine}
@@ -648,29 +651,43 @@ $\GPN_\phi$ & Graph Policy Network with parameters $\phi$. \\
 
 We trace the executor on the DAG corresponding to $((3 + 5) - 2) \cdot 7 \mod 101$ over a primitive library containing $\mathsf{CONST}_{\mathsf{Nat}}, \mathsf{ADD\_MOD}, \mathsf{SUB\_MOD}, \mathsf{MUL\_MOD}$ with the obvious semantics in $\mathbb{Z}/101\mathbb{Z}$.
 
-\begin{center}
-\begin{tikzpicture}[node distance=1.3cm and 1.6cm, every node/.style={font=\small}]
-\node[draw,circle,minimum size=0.9cm,fill=blue!10] (n1) {$n_1$};
-\node[draw,circle,minimum size=0.9cm,fill=blue!10,right=of n1] (n2) {$n_2$};
-\node[draw,circle,minimum size=0.9cm,below right=of n1] (n3) {$n_3$};
-\node[draw,circle,minimum size=0.9cm,fill=blue!10,right=2.2cm of n3] (n4) {$n_4$};
-\node[draw,circle,minimum size=0.9cm,below right=of n3] (n5) {$n_5$};
-\node[draw,circle,minimum size=0.9cm,fill=blue!10,right=2.2cm of n5] (n6) {$n_6$};
-\node[draw,circle,minimum size=0.9cm,below right=of n5] (n7) {$n_7$};
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  >={Latex[length=2.2mm]},
+  every node/.style={font=\small},
+  leaf/.style={draw, circle, fill=blue!10, minimum size=0.95cm, inner sep=0pt, line width=0.5pt},
+  op/.style={draw, circle, fill=gray!5, minimum size=0.95cm, inner sep=0pt, line width=0.5pt}
+]
+\node[leaf] (n1) at (0,0)      {$n_1$};
+\node[leaf] (n2) at (1.4,0)    {$n_2$};
+\node[op]   (n3) at (0.7,-1.4) {$n_3$};
+\node[leaf] (n4) at (2.1,-1.4) {$n_4$};
+\node[op]   (n5) at (1.4,-2.8) {$n_5$};
+\node[leaf] (n6) at (2.8,-2.8) {$n_6$};
+\node[op]   (n7) at (2.1,-4.2) {$n_7$};
 
-\draw[-{Latex[length=2mm]}] (n1) -- (n3);
-\draw[-{Latex[length=2mm]}] (n2) -- (n3);
-\draw[-{Latex[length=2mm]}] (n3) -- (n5);
-\draw[-{Latex[length=2mm]}] (n4) -- (n5);
-\draw[-{Latex[length=2mm]}] (n5) -- (n7);
-\draw[-{Latex[length=2mm]}] (n6) -- (n7);
-
-\node[right=4cm of n1, font=\small] {$n_1{=}\mathsf{CONST}(3)$, $n_2{=}\mathsf{CONST}(5)$};
-\node[right=4cm of n3, font=\small] {$n_3{=}\mathsf{ADD\_MOD}(n_1, n_2)$, $n_4{=}\mathsf{CONST}(2)$};
-\node[right=4cm of n5, font=\small] {$n_5{=}\mathsf{SUB\_MOD}(n_3, n_4)$, $n_6{=}\mathsf{CONST}(7)$};
-\node[right=4cm of n7, font=\small] {$n_7{=}\mathsf{MUL\_MOD}(n_5, n_6)$ (root)};
+\draw[->] (n1) -- (n3);
+\draw[->] (n2) -- (n3);
+\draw[->] (n3) -- (n5);
+\draw[->] (n4) -- (n5);
+\draw[->] (n5) -- (n7);
+\draw[->] (n6) -- (n7);
 \end{tikzpicture}
-\end{center}
+\hspace{1.2cm}
+\begin{minipage}[c]{0.46\textwidth}
+\small
+\begin{align*}
+n_1 &= \mathsf{CONST}(3), & n_2 &= \mathsf{CONST}(5), \\
+n_3 &= \mathsf{ADD\_MOD}(n_1, n_2), & n_4 &= \mathsf{CONST}(2), \\
+n_5 &= \mathsf{SUB\_MOD}(n_3, n_4), & n_6 &= \mathsf{CONST}(7), \\
+n_7 &= \mathsf{MUL\_MOD}(n_5, n_6). & &
+\end{align*}
+The root is $n_7$. Leaves are shaded; internal nodes are unshaded.
+\end{minipage}
+\caption{The notion DAG for $((3 + 5) - 2) \cdot 7 \mod 101$.}
+\label{fig:worked-trace}
+\end{figure}
 
 Trace:
 \begin{enumerate}[itemsep=2pt,topsep=2pt]

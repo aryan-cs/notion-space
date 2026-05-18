@@ -42,37 +42,18 @@ For the long form, read [PROPOSAL.md](PROPOSAL.md).
 
 ## Architecture in 30 seconds
 
-```
-       ┌─────────────────────────────────────────────┐
-       │              Task specification              │
-       └─────────────────────────────────────────────┘
-                          │
-                          ▼
-          ┌──────────────────────────────┐
-          │   Oracle Grammar (Track 1)   │   Track 2: a learned
-          │      Hand-crafted DAG        │   Graph Policy Network
-          │        expansion             │   builds the DAG.
-          └──────────────────────────────┘
-                          │  (typed DAG)
-                          ▼
-          ┌──────────────────────────────┐
-          │     Traversal Engine          │
-          │  PENDING → READY → EXEC →     │
-          │  RESOLVED   (hard-gated by    │
-          │   parent state)               │
-          └──────────────────────────────┘
-                          │   per node:
-                          │   (type, spec, parent values)
-                          ▼
-          ┌──────────────────────────────┐
-          │   Node Processor              │
-          │   shared 2-layer Transformer  │
-          │   (≈ 2M parameters)           │
-          │   reused across all nodes     │
-          └──────────────────────────────┘
-                          │  resolved value
-                          ▼
-                       answer
+```mermaid
+flowchart TD
+    Q["Task specification"]
+    E["DAG construction<br/><sub>oracle grammar, or a learned Graph Policy Network</sub>"]
+    T["Traversal Engine<br/><sub>PENDING → READY → EXECUTING → RESOLVED</sub><br/><sub>hard-gated by parent state</sub>"]
+    N["Node Processor<br/><sub>shared Transformer, reused across all nodes</sub>"]
+    A["Answer"]
+
+    Q --> E
+    E -- "typed DAG" --> T
+    T -- "per node: (type, spec, parent values)" --> N
+    N -- "resolved value" --> A
 ```
 
 The key architectural commitments:
