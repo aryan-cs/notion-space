@@ -189,21 +189,21 @@ During execution, every node $n \in V$ is in one of five states drawn from $\mat
 \begin{figure}[ht]
 \centering
 \begin{tikzpicture}[
-  >={Latex[length=2.2mm]},
+  >={Latex[length=2.5mm]},
   every node/.style={font=\small},
-  state/.style={draw, circle, minimum size=1.7cm, inner sep=0pt, align=center, line width=0.6pt},
-  edgelbl/.style={font=\scriptsize, fill=white, inner sep=1pt}
+  state/.style={draw, circle, minimum size=2cm, inner sep=1pt, align=center, line width=0.6pt},
+  edgelbl/.style={font=\footnotesize, fill=white, inner sep=2pt}
 ]
-\node[state, fill=gray!10] (P) at (0,0) {\PENDING};
-\node[state, fill=gray!10] (R) at (3.6,0) {\READY};
-\node[state, fill=gray!10] (E) at (7.2,0) {\EXEC};
-\node[state, fill=green!20] (Re) at (10.8,0) {\RESOLVED};
-\node[state, fill=red!15] (F) at (7.2,-3) {\FAILED};
+\node[state, fill=gray!10]  (P)  at (0, 0)     {\PENDING};
+\node[state, fill=gray!10]  (R)  at (0, -3)    {\READY};
+\node[state, fill=gray!10]  (E)  at (0, -6)    {\EXEC};
+\node[state, fill=green!20] (Re) at (3.6, -9)  {\RESOLVED};
+\node[state, fill=red!15]   (F)  at (-3.6, -9) {\FAILED};
 
-\draw[->] (P) -- node[edgelbl,above]{parents resolved} (R);
-\draw[->] (R) -- node[edgelbl,above]{dispatched} (E);
-\draw[->] (E) -- node[edgelbl,above]{$\NodeProc$ ok} (Re);
-\draw[->] (E) -- node[edgelbl,right]{$\NodeProc$ fail} (F);
+\draw[->] (P) -- node[edgelbl, right=1pt]{parents resolved} (R);
+\draw[->] (R) -- node[edgelbl, right=1pt]{dispatched} (E);
+\draw[->] (E) to[bend left=18] node[edgelbl, sloped, above]{$\NodeProc$ ok} (Re);
+\draw[->] (E) to[bend right=18] node[edgelbl, sloped, above]{$\NodeProc$ fail} (F);
 \end{tikzpicture}
 \caption{The node-state machine. $\PENDING \to \READY$ is gated by a hard predicate on parent state; $\READY \to \EXEC$ by dispatch; $\EXEC \to \RESOLVED$ or $\EXEC \to \FAILED$ by the outcome of the node-processor call.}
 \label{fig:state-machine}
@@ -646,12 +646,15 @@ $\GPN_\phi$ & Graph Policy Network with parameters $\phi$. \\
 \end{tabular}
 \end{center}
 
+\clearpage
 \section{Worked Trace}
 \label{app:trace}
 
-We trace the executor on the DAG corresponding to $((3 + 5) - 2) \cdot 7 \mod 101$ over a primitive library containing $\mathsf{CONST}_{\mathsf{Nat}}, \mathsf{ADD\_MOD}, \mathsf{SUB\_MOD}, \mathsf{MUL\_MOD}$ with the obvious semantics in $\mathbb{Z}/101\mathbb{Z}$.
+We trace the executor on the DAG corresponding to $((3 + 5) - 2) \cdot 7 \mod 101$ over a primitive library containing $\mathsf{CONST}_{\mathsf{Nat}}, \mathsf{ADD\_MOD}, \mathsf{SUB\_MOD}, \mathsf{MUL\_MOD}$ with the obvious semantics in $\mathbb{Z}/101\mathbb{Z}$. The DAG is shown in \Cref{fig:worked-trace}.
 
 \begin{figure}[ht]
+\centering
+\begin{minipage}[c]{0.32\textwidth}
 \centering
 \begin{tikzpicture}[
   >={Latex[length=2.2mm]},
@@ -674,8 +677,8 @@ We trace the executor on the DAG corresponding to $((3 + 5) - 2) \cdot 7 \mod 10
 \draw[->] (n5) -- (n7);
 \draw[->] (n6) -- (n7);
 \end{tikzpicture}
-\hspace{1.2cm}
-\begin{minipage}[c]{0.46\textwidth}
+\end{minipage}\hfill
+\begin{minipage}[c]{0.58\textwidth}
 \small
 \begin{align*}
 n_1 &= \mathsf{CONST}(3), & n_2 &= \mathsf{CONST}(5), \\
@@ -683,9 +686,8 @@ n_3 &= \mathsf{ADD\_MOD}(n_1, n_2), & n_4 &= \mathsf{CONST}(2), \\
 n_5 &= \mathsf{SUB\_MOD}(n_3, n_4), & n_6 &= \mathsf{CONST}(7), \\
 n_7 &= \mathsf{MUL\_MOD}(n_5, n_6). & &
 \end{align*}
-The root is $n_7$. Leaves are shaded; internal nodes are unshaded.
 \end{minipage}
-\caption{The notion DAG for $((3 + 5) - 2) \cdot 7 \mod 101$.}
+\caption{The notion DAG for $((3 + 5) - 2) \cdot 7 \mod 101$. The root is $n_7$; leaves are shaded, internal nodes unshaded.}
 \label{fig:worked-trace}
 \end{figure}
 
