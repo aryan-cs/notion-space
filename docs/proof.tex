@@ -315,6 +315,21 @@ The node processor $\NodeProc_\theta$ is a small Transformer. Its input at a nod
 
 The processor has no access to a global graph embedding, no access to the depth or index of the node it is processing, and no access to a history vector summarising prior nodes. We refer to the tuple $(\tau_n, \Spec_n, (v_p)_{p \in \Parents_n})$ as the \emph{local context} of $n$, and this is precisely what the processor sees. The consequences of this design for generalisation are developed in \Cref{sec:generalization}.
 
+\subsection{Iteration, recursion, and the layered treatment of control flow}
+\label{sec:iteration-layered}
+
+The executor's view is acyclic by construction, but the system as a whole is not restricted to feed-forward computation. Iterative reasoning, recursion, and search-with-backtracking are expressible at one of three layers above the executor.
+
+\begin{itemize}[topsep=2pt,itemsep=4pt]
+  \item \emph{Iteration as graph depth.} A computation requiring $k$ sequential applications of a primitive appears in the executor's view as a chain of $k$ notion nodes, each invoking the shared processor once. This is the same unrolling that converts a recurrent neural network's source-level cycle into an acyclic computation graph at training time. The parameter count of the processor is unchanged; only the number of node invocations grows.
+
+  \item \emph{Iteration in the graph-construction policy.} When the construction of the DAG is itself learned (\Cref{sec:learned-construction}), the policy's control flow is unconstrained: the policy may loop over candidate expansions, condition on intermediate values, and decide adaptively whether to extend the current chain. The DAG it emits is acyclic; the procedure that emits it need not be.
+
+  \item \emph{Iteration in composite primitives.} A primitive's semantics is an arbitrary total function (\Cref{def:primitive}). Nothing requires a primitive to be implemented by a single forward pass of the neural processor. A primitive may be implemented symbolically, or as a procedural macro that expands at runtime into a sub-DAG of size dependent on its inputs (a $\mathsf{FOLD}$, $\mathsf{MAP}$, or $\mathsf{WHILE}$ combinator). Such composite primitives preserve the executor's acyclic invariant by producing acyclic sub-graphs on each invocation.
+\end{itemize}
+
+What the architecture excludes is \emph{cyclic execution traces}---the executor's view itself containing a cycle. This exclusion is deliberate: cyclic traces require fixed-point semantics, lose deterministic termination, lose the order-independence of \Cref{thm:gsre-order}, and break the soundness argument of \Cref{thm:gsre-soundness}. The same exclusion is made (under different names) by every modern computation-graph framework. Loops live in source code or in the construction layer; the trace is always a DAG.
+
 \section{Architectural Comparison}
 \label{sec:arch-comparison}
 
@@ -394,20 +409,40 @@ The sequence transformer's per-step input is $\Theta(|V| \cdot L_{\max})$; the w
 
 \subsection{Capacity--depth decoupling}
 
-\begin{theorem}[Capacity--depth decoupling under i.i.d.\ primitive error]
+The unconditional architectural property is the per-step bound of \Cref{prop:per-step-bounded}: at every node, the processor sees an input of size $\mathcal{O}(k_{\max} L_{\max})$, and the parameter count of $\NodeProc_\theta$ is fixed by the architecture and independent of $|V|$ and $\dep(G)$. Depth grows the number of processor invocations but not the per-invocation cost or capacity.
+
+Translating this architectural property into an end-to-end accuracy bound requires a model of how per-primitive errors compose. We give first the cleanest such model and then state honestly the assumptions it makes.
+
+\begin{theorem}[Capacity--depth decoupling under independent primitive errors]
 \label{thm:capacity-depth}
-Let $\NodeProc_\theta$ be a stochastic processor with independent error events at distinct invocations, and let $\eps$ be a uniform upper bound on the probability that $\NodeProc_\theta$ returns a value other than $f_\tau$ on a single primitive-correct input. For any well-formed notion DAG $G = (V, r)$,
+Suppose $\NodeProc_\theta$ has per-invocation error bound $\eps$:
+\[
+\sup_{\tau, (v_1, \dots, v_{k_\tau})} \Prob\bigl[\NodeProc_\theta(\tau, \cdot, (v_1, \dots, v_{k_\tau})) \ne f_\tau(v_1, \dots, v_{k_\tau})\bigr] \;\le\; \eps,
+\]
+and suppose further that error events at distinct invocations are independent. Then for any well-formed notion DAG $G = (V, r)$,
 \[
 \Prob\bigl[v_r = \hat{v}_r\bigr] \;\ge\; (1-\eps)^{|V| - |V_{\mathrm{leaf}}|}.
 \]
-For chain-shaped DAGs of depth $d$ with no shared subexpressions, this specialises to $\Prob[v_r = \hat{v}_r] \ge (1-\eps)^d$, with the parameter count of $\NodeProc_\theta$ constant in $d$.
+For chain-shaped DAGs of depth $d$ with no shared subexpressions, this specialises to $\Prob[v_r = \hat{v}_r] \ge (1-\eps)^d$.
 \end{theorem}
 
 \begin{proof}
-Conditional on every non-leaf node having received its correct parent values, each invocation independently succeeds with probability at least $1 - \eps$. The joint success of all $|V| - |V_{\mathrm{leaf}}|$ non-leaf invocations therefore has probability at least $(1-\eps)^{|V| - |V_{\mathrm{leaf}}|}$, and this event implies $v_r = \hat{v}_r$. The parameter count of $\NodeProc_\theta$ is fixed by the architecture and does not depend on $|V|$ or $d$.
+Conditional on every non-leaf node having received its correct parent values, each invocation independently succeeds with probability at least $1 - \eps$. The joint success of all $|V| - |V_{\mathrm{leaf}}|$ non-leaf invocations therefore has probability at least $(1-\eps)^{|V| - |V_{\mathrm{leaf}}|}$, and this event implies $v_r = \hat{v}_r$.
 \end{proof}
 
-The bound is loose where errors at downstream nodes can absorb upstream errors (e.g., $\mathsf{ADD\_MOD}$ followed by a $\mathsf{COMPARE}$ that ignores the perturbed bit). It is tight where each primitive's output is fully determined by its parent values and the error events factor.
+\begin{remark}[Independence is the load-bearing assumption]
+\label{rem:independence}
+The independence assumption is unrealistic in practice. A shared-parameter processor has shared failure modes: if $\NodeProc_\theta$ is systematically wrong on inputs of a certain shape (e.g., near-zero arguments to a multiplicative primitive, edge cases of a string operation), every node whose local context falls in that region fails together. \Cref{thm:capacity-depth} is therefore best read as a baseline against which empirical decay is to be measured, not as a tight predictor of end-to-end accuracy.
+
+The honest characterisation of the architectural payoff has two parts. (i) The unconditional part: the per-step input is bounded by max arity, the per-step parameter count is fixed, and the processor's hypothesis class is depth-invariant. These are properties of the architecture, not of any error model. (ii) The conditional part: under the geometric decay model, depth degrades success probability multiplicatively rather than catastrophically. The empirical question is whether realistic error correlation structure is closer to the independent model or to the worst case of fully-coupled failure.
+\end{remark}
+
+\begin{remark}[Empirical replacement of the geometric model]
+\label{rem:empirical-decay}
+Let $\hat{\eps}(c)$ denote the empirical error rate of the trained processor on local contexts of a specified shape $c$, and let $\rho(c, c')$ denote the empirical covariance of error events between invocations with contexts $c$ and $c'$. The accuracy of a depth-$d$ chain is then bounded by a function of $\hat{\eps}(\cdot)$ and $\rho(\cdot, \cdot)$ that reduces to $(1-\eps)^d$ when $\rho \equiv 0$ and tracks the true behaviour otherwise. A complete empirical characterisation of the architecture therefore measures both the marginal error and the error correlation structure, and reports the depth-decay curve directly rather than via the geometric proxy.
+\end{remark}
+
+The bound of \Cref{thm:capacity-depth} is loose where errors at downstream nodes can absorb upstream errors (e.g., $\mathsf{ADD\_MOD}$ followed by a $\mathsf{COMPARE}$ that ignores the perturbed bit) and tight where each primitive's output is fully determined by its parent values and error events factor.
 
 \begin{remark}[Failure mode of the sequence baseline]
 \label{rem:b5-no-decoupling}
@@ -469,6 +504,8 @@ Let $\mathcal{D}_{d_{\mathrm{train}}}$ and $\mathcal{D}_{d_{\mathrm{test}}}$ hav
 The right-hand side depends on $d_{\mathrm{test}}$ only through the size distribution of the test graphs, and decays geometrically rather than catastrophically.
 
 The marginal-invariance assumption is non-trivial. It is approximately satisfied when leaf values are sampled uniformly, primitive choices induce uniform output distributions, and the primitive library is closed under composition in a way that preserves the marginal distribution of internal-node parent values. Modular arithmetic over a prime modulus is a clean special case: for $p$ prime, $(\mathbb{Z}/p\mathbb{Z})^{\times}$ is cyclic of order $p - 1$, and the induced output distributions of $\mathsf{ADD\_MOD}, \mathsf{SUB\_MOD}, \mathsf{MUL\_MOD}$ on independent uniform inputs remain uniform on $\mathbb{Z}/p\mathbb{Z}$ (or on $(\mathbb{Z}/p\mathbb{Z})^{\times}$ for the multiplicative case, conditioned on nonzero inputs). In such settings $\mathcal{M}_d$ is approximately invariant in $d$, and \Cref{cor:ood-accuracy} applies directly.
+
+For tasks that do not admit a closed-form invariance argument, the assumption is empirically testable. Sample a corpus of DAGs at each depth of interest, evaluate the oracle on each, and collect the induced empirical distribution $\widehat{\mathcal{M}}_d$ over local contexts. A divergence between $\widehat{\mathcal{M}}_{d_1}$ and $\widehat{\mathcal{M}}_{d_2}$ (KL, total variation, or maximum mean discrepancy under a chosen kernel on the context space) quantifies how far the assumption is from holding for that task. Reporting this divergence alongside any depth-generalisation measurement turns \Cref{cor:ood-accuracy} from an unverifiable conditional into a calibrated statement: where the empirical divergence is small, the accuracy bound applies; where it is large, the bound is to be weakened by an amount controlled by the divergence. We refer to this measurement as the \emph{marginal-invariance diagnostic} and treat it as a required companion to any depth-generalisation claim.
 
 \subsection{Failure modes of the baselines under depth shift}
 
@@ -540,6 +577,13 @@ where $a^\ast$ is the oracle expansion action at $s$.
 
 \paragraph{Policy-gradient refinement.} Subsequent training proceeds via PPO~\cite{schulman2017proximal} or analogous policy-gradient updates on the sparse-reward signal, possibly augmented with MCTS-improved policy targets~\cite{silver2018general}. Because transitions are deterministic, value estimates depend only on the policy itself and the (fixed-seed) executor.
 
+\subsection{Sample complexity of policy learning}
+\label{sec:sample-complexity}
+
+The graph-construction MDP is structurally close to the AlphaZero-style setting of deterministic-transition single-agent search with sparse terminal reward and a small per-step action space, for which the sample-complexity behaviour of search-augmented policy iteration is empirically well-characterised. Two features make the present setting more favourable than the chess/Go regime in which those bounds were established: transitions are not merely deterministic but fully simulable by the executor itself, and the reward is verifiable by re-execution rather than by a learned value head. Two features make it harder: episodes can be longer because reasoning depth is unbounded, and the policy's value head must learn to predict success at intermediate partial graphs whose value is the joint product of all remaining primitive evaluations.
+
+We do not give an end-to-end sample-complexity bound. Quantitative claims about the difficulty of training the graph policy are intentionally deferred to the empirical programme of \Cref{sec:empirical-programme}, where they appear as a measurable diagnostic (learning curves with and without MCTS augmentation, parameterised by graph depth) rather than as a theorem.
+
 \section{Library Extension}
 \label{sec:library-extension}
 
@@ -570,6 +614,13 @@ Adding a new primitive $\tau_{K+1}$ to the library requires the processor to lea
 \end{itemize}
 
 Standard tools---adapter layers~\cite{houlsby2019parameter}, low-rank adaptation~\cite{hu2021lora}, elastic-weight consolidation~\cite{kirkpatrick2017overcoming}, mixture-of-experts---trade these properties against each other. The shared-processor architecture commits to a single set of parameters for all primitives; reconciling stability and plasticity in this constrained setting is open.
+
+\paragraph{Procedural primitives as a structural mitigation.}
+A pragmatic alternative to demanding that the neural processor learn every new primitive is to admit \emph{procedural primitives} into the library: primitives whose semantic function is implemented not by a forward pass of $\NodeProc_\theta$ but by a program over already-learned atomic primitives. A procedural primitive $\tau$ carries an expansion rule
+\[
+\mathsf{Expand}_\tau \;:\; \Val_{\mathsf{in}_\tau} \;\to\; \bigl(\text{sub-DAG over } \Lib\bigr),
+\]
+which the executor invokes in place of $\NodeProc_\theta$ at any node of type $\tau$. Procedural primitives may be parameterised by structural arguments (e.g.\ list length), may contain loops and conditionals in their expansion rule, and may be composed; what they may not do is introduce cycles in the resulting sub-DAG, so the executor's invariants are preserved. The stability--plasticity tradeoff in $\NodeProc_\theta$ is sidestepped entirely: the neural processor's parameter set is fixed, and library growth happens at a layer above it. This is the same mechanism by which programming-language standard libraries are extended without modifying the underlying interpreter, and it connects directly to the wake--sleep library learning regime of~\cite{ellis2021dreamcoder} interpreted as procedural macros rather than learned atomic operations.
 
 \subsection{Verification of invented primitives}
 
@@ -602,6 +653,27 @@ The architecture connects to several established lines of work.
 \paragraph{Program synthesis and library learning.} The learned-graph-construction MDP of \Cref{sec:learned-construction} is a neural program synthesis problem with a known DSL~\cite{gulwani2017program, devlin2017robustfill}. The library-extension setting of \Cref{sec:library-extension} is most closely related to DreamCoder~\cite{ellis2021dreamcoder}.
 
 \paragraph{Graph neural networks.} The weight-tied graph transformer is structurally close to message-passing GNNs~\cite{kipf2016semi, velivckovic2017graph}, differing in that GNN message passing updates all nodes at every layer regardless of whether their inputs have stabilised.
+
+\section{Empirical Programme}
+\label{sec:empirical-programme}
+
+The theorems and bounds developed in the preceding sections are predicated on assumptions whose realism is itself an empirical question. We list here the minimal set of measurements that would tighten the document from a conditional statement of properties to a calibrated description of system behaviour. Each item maps onto a specific theorem and produces a diagnostic that either supports the theorem's antecedent or quantifies the gap.
+
+\begin{enumerate}[topsep=4pt,itemsep=4pt]
+  \item \emph{Per-primitive accuracy and error correlation structure.}
+  Train $\NodeProc_\theta$ on the primitive library and measure (i) the marginal error rate $\hat{\eps}(\tau, c)$ for each primitive $\tau$ and local-context shape $c$; (ii) the empirical covariance $\rho$ of error events across invocations sharing a context shape; (iii) the realised depth-decay curve on chained primitives, to be compared against the $(1-\eps)^d$ baseline of \Cref{thm:capacity-depth}. This tests whether the architectural decoupling argument survives the realities of a shared-parameter neural network (\Cref{rem:independence}).
+
+  \item \emph{Marginal-invariance diagnostic.}
+  For each task family of interest, sample DAGs at depths $d \in \{1, \dots, d_{\max}\}$, evaluate the oracle to populate parent values, and compute a divergence (KL or MMD) between the empirical context marginals $\widehat{\mathcal{M}}_d$. Report the divergence alongside any depth-generalisation accuracy curve. This calibrates \Cref{cor:ood-accuracy} for the specific task: where the divergence is small, the bound applies; where it is large, the bound is to be weakened in proportion.
+
+  \item \emph{OOD depth-generalisation curves.}
+  Train the executor on shallow graphs ($d \le 3$) and measure exact-match accuracy on test graphs of depth $d \in \{4, 5, 7, 9, 10\}$ across multiple seeds, comparing against the weight-tied graph transformer of \Cref{def:b4tied} and the sequence transformer of \Cref{def:b5} under matched training compute, parameter count, and primitive coverage. The OOD slope difference is the direct test of the architectural claim that explicit dependency scheduling improves depth generalisation beyond implicit causal masking.
+
+  \item \emph{Graph-policy learning curves.}
+  Train the graph-policy network of \Cref{sec:learned-construction} under three regimes: pure policy gradient with sparse reward, policy gradient with behaviour-cloning warm-start, and AlphaZero-style MCTS-augmented policy iteration. Report sample efficiency and asymptotic success rate as a function of maximum task depth. This characterises the policy-learning difficulty acknowledged in \Cref{sec:sample-complexity}.
+\end{enumerate}
+
+Together these measurements close the loop between architecture and behaviour: items~1 and~2 calibrate the executor's idealised guarantees, item~3 tests the architectural prediction against alternatives, and item~4 measures the trainability of the construction layer above it. Any negative result in this programme localises the architectural assumption that fails, which is what makes the assumptions worth stating precisely.
 
 \section{Discussion}
 \label{sec:discussion}
