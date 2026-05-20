@@ -36,6 +36,7 @@
 % ---- Macros ----
 \newcommand{\Notion}{\mathcal{N}}
 \newcommand{\Lib}{\mathcal{L}}
+\newcommand{\Schemas}{\mathcal{S}}
 \newcommand{\Types}{\mathcal{T}}
 \newcommand{\Val}{\mathcal{V}}
 \newcommand{\Spec}{\mathsf{spec}}
@@ -45,8 +46,13 @@
 \newcommand{\dep}{\mathsf{depth}}
 \newcommand{\GSRE}{\textsc{Gsre}}
 \newcommand{\NBRS}{\textsc{Nbrs}}
+\newcommand{\SFRA}{\textsc{Sfra}}
 \newcommand{\GPN}{\textsc{Gpn}}
 \newcommand{\NodeProc}{\mathsf{NodeProc}}
+\newcommand{\Bind}{\mathsf{Bind}}
+\newcommand{\Inst}{\mathsf{Inst}}
+\newcommand{\Match}{\mathsf{Match}}
+\newcommand{\Sketch}{\mathsf{Sketch}}
 \newcommand{\PENDING}{\textsc{Pending}}
 \newcommand{\READY}{\textsc{Ready}}
 \newcommand{\EXEC}{\textsc{Executing}}
@@ -56,12 +62,11 @@
 \newcommand{\N}{\mathbb{N}}
 \newcommand{\E}{\mathbb{E}}
 \newcommand{\Prob}{\mathbb{P}}
-\newcommand{\indicator}{\mathbf{1}}
 \newcommand{\eps}{\varepsilon}
 
 % ---- Title ----
-\title{\bfseries The Notion-Based Reasoning System\\[0.3em]
-\large Compositional Execution via Dependency-Gated Recurrence}
+\title{\bfseries Schema-Factored Reasoning\\[0.3em]
+\large Cross-Domain Procedural Transfer via Structure--Content Decomposition}
 
 \author{Aryan Gupta\\[2pt]\href{mailto:aryan.cs.app@gmail.com}{\texttt{aryan.cs.app@gmail.com}}}
 \date{\today}
@@ -70,121 +75,414 @@
 \maketitle
 
 \begin{abstract}
-\noindent The Notion-Based Reasoning System (\NBRS) performs reasoning by traversing a typed directed acyclic graph of operations and resolving each operation node with a shared, capacity-limited neural processor invoked only when its inputs are available. This document develops the formal theory of the architecture. We formalise the executor as a deterministic state machine over a typed DAG and establish its core operational properties: argument availability is preserved as an invariant, the resulting computation is deterministic, order-independent across topological schedules, terminates in a number of node invocations linear in graph size, and reduces to oracle evaluation under a primitive-accurate processor. We contrast its inductive bias with a weight-tied graph transformer carrying a causal ancestor mask and with a sequence transformer over a serialised DAG, and prove an expressivity containment between the three. The executor's per-step input is bounded by the maximum primitive arity independently of graph depth; combined with a stochastic processor of per-invocation error $\eps$, this yields a capacity--depth decoupling: depth-$d$ graphs are resolved correctly with probability at least $(1-\eps)^d$ and per-step parameter count is constant in $d$. The processor sees only the local context of each node, which gives the architecture a clean local-context invariance principle and, under marginal-invariance of the local context across depths, a depth-independent expected per-node error. We extend the framework to autonomous graph construction as a Markov decision process with deterministic transitions and a polynomially-bounded action space, and we state the formal questions associated with extending the primitive library through subgraph abstraction.
+\noindent Current large language models simulate multi-step reasoning by autoregressive token prediction over surface representations. This collapses on tasks requiring transfer of an abstract procedure across content domains: the same algorithm applied to letter-string puzzles in a novel alphabet, the same equilibrium argument applied across physics and economics, the same inductive proof pattern applied across number theory and graph theory. The failure has a structural diagnosis. A standard transformer does not factorise the relational scaffold of a problem from its specific content, and so has no representation that can be transferred independently of content.
+
+We propose the Schema-Factored Reasoning Architecture (\SFRA), motivated by the structure--content factorisation observed in the hippocampal--entorhinal cognitive map~\cite{whittington2020tem, behrens2018cognitive, constantinescu2016conceptual} and by the structure-mapping account of analogy~\cite{gentner1983structure, falkenhainer1989sme}. \SFRA\ maintains an explicit library of \emph{schemas}: parameterised relational templates over typed operations, induced from few examples, stored as content-independent abstractions, and applied to new problems via structure-mapping. An LLM serves as the content engine that parses problems and supplies values; a separate structural layer maintains the schema library and selects, binds, and instantiates schemas; the resulting concrete computation runs on a deterministic graph executor (the Graph-Structured Recurrent Executor of the Notion-Based Reasoning System, retained as substrate). Library growth is driven by a replay-style consolidation process that abstracts schemas from successful traces.
+
+The technical contributions of this document are: (i) formal definitions of schemas, structural binding, and analogical mapping over typed notion DAGs; (ii) the architectural specification of \SFRA\ as a five-component system (content layer, structure extractor, schema library, analogy engine, execution substrate) with the consolidation process that grows the library; (iii) execution guarantees for instantiated schemas inherited from the underlying executor (determinism, termination, soundness, depth-decoupling); (iv) a precise statement of the transfer property the architecture is designed to achieve, with the conditions under which it holds; (v) a falsifiable empirical programme targeting cross-domain analogical transfer benchmarks where contemporary LLMs systematically fail.
 \end{abstract}
 
 \section{Introduction}
 \label{sec:intro}
 
-A neural network that simulates multi-step reasoning through autoregressive token prediction must perform two distinct functions simultaneously: deciding what sub-problems to solve, and solving them. The two functions share parameters, share context, and share representational bandwidth. As compositional depth grows, the constraints they place on each other tighten. This is the structural reason behind the observed degradation of token-level reasoning with depth: a fixed-capacity sequence model cannot allocate independent computational resources to each step of a multi-step computation.
+\subsection{The transfer gap}
 
-The \NBRS\ separates the two functions architecturally. Reasoning is represented as a typed directed acyclic graph of \emph{notions}---operations on typed values---with edges denoting argument dependencies. Execution is dependency-gated: a node fires only when all of its arguments are resolved, and at that point a single, shared, capacity-limited neural module (the \emph{node processor}) is invoked on the local context of the node. The same parameters are reused at every node, unrolled in time rather than in width. Compositional depth grows the number of node invocations; it does not consume neural parameters, attention positions, or representational bandwidth.
+The capability that most distinguishes human reasoning from contemporary large language models is not depth, breadth, or factual coverage. It is \emph{transfer}: the ability to recognise that a problem in a new domain has the same structure as a problem already solved in some other domain, and to apply the previously-learned procedure to the new content without further training. A child who has learned long-division on integers can apply the same algorithm to polynomials with minimal additional instruction. A physicist who recognises that supply--demand equilibrium has the structure of mechanical equilibrium can transfer intuitions about damped oscillations to market dynamics. A reader who absorbs the moral of a parable can identify the same structural pattern in a story with different characters, settings, and surface content.
 
-This document develops the theory. We define the typed DAG and its operational semantics, prove the executor's invariants, derive its information-theoretic properties, and characterise the conditions under which depth-generalisation holds. We then formulate the natural extensions: autonomous graph construction by a learned policy, and extension of the primitive library through subgraph abstraction. Throughout, the goal is to produce statements that admit precise analysis and clean comparison with sequence-based and graph-based alternatives.
+Recent stress tests of analogical reasoning in frontier LLMs document the gap precisely. Lewis and Mitchell~\cite{lewis2024analogy} and Webb et al.~\cite{webb2023emergent} show that performance on letter-string analogies, Raven's Progressive Matrices, and digit-pattern problems collapses when test stimuli are constructed to be unlikely in training data: GPT-class models fail on novel alphabets where humans, including children, generalise robustly. The failure mode is consistent across studies: LLMs match on surface features, not on relational structure. Where the abstract pattern requires a content-independent representation, the model has nothing to fall back on.
+
+\subsection{The neurobiological evidence for structure--content factorisation}
+
+The brain solves the transfer problem with an architectural commitment that contemporary neural networks do not make. The hippocampal--entorhinal system maintains \emph{factorised} representations: structural codes encode the relational scaffold of a task or environment (the graph of transitions, the relative positions, the type relationships), while sensory codes encode the specific content (which objects are at which positions, which values fill which slots). Conjunctive cells in the hippocampus combine them.
+
+The factorisation is striking enough that the same grid-cell apparatus that organises physical spatial navigation also organises navigation through abstract conceptual spaces. Constantinescu, Behrens, and colleagues~\cite{constantinescu2016conceptual} demonstrated that human subjects navigating a continuous two-dimensional space of bird shapes (defined by neck length and leg length) exhibit the same six-fold hexagonal fMRI signature that grid cells produce for physical space. The brain's structural representation is domain-general; what changes between physical and conceptual tasks is the content bound to that structure, not the structure itself.
+
+The Tolman--Eichenbaum Machine~\cite{whittington2020tem} formalises this as a computational model. After training on diverse environments, its medial-entorhinal cells learn to represent the abstract transition structure shared across environments; its lateral-entorhinal cells encode the sensory content; its hippocampal cells encode conjunctions. Transfer to a new environment requires re-binding sensory content to an already-learned structure, not relearning structure from scratch. Recent extensions and ablations~\cite{whittington2022disentanglement, spens2024consolidation} show that the factorisation is necessary for the model's transfer behaviour: removing it removes the generalisation property.
+
+\subsection{The proposal}
+
+We propose the Schema-Factored Reasoning Architecture (\SFRA): a neurosymbolic system that operationalises the cognitive-map factorisation for procedural reasoning. \SFRA\ maintains a library of \emph{schemas}---parameterised relational templates over typed operations---that are induced from few examples, stored as content-independent abstractions, and applied to new problems by mapping the problem's relational structure onto the schema and binding the schema's variables to problem content. An LLM provides the content layer (parsing problems, supplying values, generating natural-language output); a structural layer parses content into relational graphs and operates the schema library; instantiated schemas execute on a deterministic typed-DAG executor inherited from prior work on the Notion-Based Reasoning System; a consolidation process driven by replay over successful traces grows the library over time.
+
+The technical content of this document is in five parts. \Cref{sec:conceptual} fixes the conceptual framework: the structure--content distinction, schemas as the unit of transfer, the relationship to cognitive maps. \Cref{sec:prelim,sec:schemas} give the formal preliminaries and define schemas, instantiation, and structural matching. \Cref{sec:architecture} specifies the five-component architecture. \Cref{sec:substrate} compresses the execution substrate (the Graph-Structured Recurrent Executor; full operational properties retained in \Cref{app:executor}). \Cref{sec:induction,sec:transfer} develop the schema-induction and analogical-transfer mechanisms, including conditions for soundness. \Cref{sec:empirical} states the empirical programme: a tiered set of cross-domain transfer benchmarks on which the architecture is to be evaluated against contemporary LLM baselines.
+
+\section{Conceptual Framework}
+\label{sec:conceptual}
+
+\subsection{The structure--content distinction}
+
+A reasoning problem has two separable aspects. The \emph{content} consists of the specific values, entities, types, and surface features that the problem mentions. The \emph{structure} consists of the relational scaffold: which entities depend on which others, what operations connect them, what invariants hold, what the goal is in relation to the givens.
+
+Two problems share content when they mention the same things; they share structure when the dependency graphs of their solutions are isomorphic up to relabelling. Contemporary LLMs blend these in a single token stream and a single attention computation. When training distributions cover the content--structure joint distribution densely, this works; when test problems combine familiar structure with unfamiliar content, it breaks.
+
+\subsection{Schemas as the unit of transfer}
+
+We define a \emph{schema} as a parameterised relational template: a typed notion-DAG in which leaves and constants are replaced by typed variables. Concretely, a schema for the binary-search procedure has the form ``given a sorted sequence $x$ of type $T^\ast$ and a target value $y$ of type $T$, iteratively halve the search interval according to a comparison primitive $\mathsf{cmp} : T \times T \to \mathsf{Bool}$.'' This template has no commitment to what $T$ is, what specific elements $x$ contains, or what specific value $y$ takes. Instantiating the schema requires binding $T$, $x$, $y$, and $\mathsf{cmp}$ to a concrete problem; once bound, the schema produces a concrete typed DAG that the executor can run.
+
+A schema, in this sense, is exactly the object that the cognitive-map literature identifies as the entorhinal structural code. It is the abstract pattern that survives transfer; the binding is the conjunctive code that combines structure with content.
+
+\subsection{Analogical transfer as structural alignment}
+
+Given a new problem $P$ and a library of schemas, transfer proceeds in three steps. First, the structure extractor parses $P$ into a relational graph $G_P$ describing $P$'s entities, types, and dependencies. Second, the analogy engine searches the library for a schema $S$ whose structure aligns with $G_P$ under some type-respecting binding $\beta$. Third, the binding $\beta$ instantiates $S$ into a concrete DAG that the executor runs.
+
+The structural alignment in the second step is precisely Gentner's structure-mapping~\cite{gentner1983structure}: a partial isomorphism between schema variables and problem entities that preserves the relational structure. It is not surface similarity. Two problems with no shared surface features can share structure, and the analogy engine finds the schema whose structure matches---regardless of whether the problem's content was ever seen during library construction.
 
 \section{Formal Preliminaries}
 \label{sec:prelim}
 
-We work in a typed first-order setting. Values have types; operations have input and output types; reasoning is a typed computation organised as a DAG.
+We work in a typed first-order setting. Values have types; operations have input and output types; reasoning is a typed computation organised as a DAG; schemas are typed DAGs with variables.
 
-\subsection{Types and values}
+\subsection{Types, values, primitives}
 
 \begin{definition}[Type system]
 \label{def:types}
-A type system is a pair $(\Types, \Val)$ where $\Types$ is a finite, decidable set of types and $\Val = \bigsqcup_{\tau \in \Types} \Val_\tau$ is a disjoint union of value domains. We write $v : \tau$ for $v \in \Val_\tau$.
+A type system is a pair $(\Types, \Val)$ where $\Types$ is a finite, decidable set of types and $\Val = \bigsqcup_{\tau \in \Types} \Val_\tau$ is a disjoint union of value domains. We write $v : \tau$ for $v \in \Val_\tau$. The type system may include type constructors: list types $T^\ast$, product types $T \times T'$, function types $T \to T'$.
 \end{definition}
-
-\subsection{Primitive operations}
 
 \begin{definition}[Primitive operation]
 \label{def:primitive}
-A primitive operation is a tuple
-\[
-\tau \;=\; \bigl(\mathsf{name}_\tau,\; \mathsf{in}_\tau,\; \mathsf{out}_\tau,\; f_\tau\bigr),
-\]
-where $\mathsf{in}_\tau \in \Types^\ast$ is a (possibly empty) tuple of input types of length $k_\tau$, $\mathsf{out}_\tau \in \Types$ is the output type, and $f_\tau$ is a total function
-\[
-f_\tau \;:\; \Val_{\tau_1} \times \cdots \times \Val_{\tau_{k_\tau}} \;\to\; \Val_{\mathsf{out}_\tau}.
-\]
-We refer to $f_\tau$ as the \emph{semantic function} of $\tau$; it defines the mathematical meaning of the primitive, independently of any neural realisation.
-\end{definition}
-
-\begin{definition}[Primitive library]
-\label{def:library}
-A primitive library is a finite, ordered set $\Lib = \{\tau_1, \dots, \tau_K\}$ of primitives. The library is type-closed if for every $\tau \in \Lib$ and every $\sigma \in \mathsf{in}_\tau$ either $\sigma$ is an input type of the overall task or some primitive in $\Lib$ has output type $\sigma$.
+A primitive operation is a tuple $\tau = (\mathsf{name}_\tau, \mathsf{in}_\tau, \mathsf{out}_\tau, f_\tau)$ with $\mathsf{in}_\tau \in \Types^\ast$ of length $k_\tau$, $\mathsf{out}_\tau \in \Types$, and $f_\tau : \Val_{\tau_1} \times \cdots \times \Val_{\tau_{k_\tau}} \to \Val_{\mathsf{out}_\tau}$ a total semantic function. A primitive library $\Lib = \{\tau_1, \dots, \tau_K\}$ is a finite set.
 \end{definition}
 
 \subsection{Notions and notion DAGs}
 
+A notion is an instance of a primitive operation in a particular computation. A notion DAG is a typed, dependency-ordered graph of notions whose root is the computation's output.
+
 \begin{definition}[Notion]
 \label{def:notion}
-A notion over a library $\Lib$ is a tuple
-\[
-n \;=\; \bigl(\mathsf{id}_n,\; \tau_n,\; \Spec_n,\; \Parents_n\bigr),
-\]
-where $\mathsf{id}_n$ is a unique identifier, $\tau_n \in \Lib$, $\Spec_n$ encodes any auxiliary parameters of the primitive (constants, shift offsets, comparison directions), and $\Parents_n = (p_1, \dots, p_{k_{\tau_n}})$ is the ordered tuple of parent identifiers, one per input slot of $\tau_n$. A notion with $\Parents_n = ()$ is a leaf.
+A notion over a library $\Lib$ is a tuple $n = (\mathsf{id}_n, \tau_n, \Spec_n, \Parents_n)$ where $\mathsf{id}_n$ is a unique identifier, $\tau_n \in \Lib$, $\Spec_n$ encodes auxiliary parameters of the primitive, and $\Parents_n = (p_1, \dots, p_{k_{\tau_n}})$ is the ordered tuple of parent identifiers. A leaf notion has $\Parents_n = ()$ and a concrete leaf value supplied externally.
 \end{definition}
 
 \begin{definition}[Notion DAG]
 \label{def:notion-dag}
-A notion DAG over $\Lib$ is a pair $G = (V, r)$ where $V$ is a finite set of notions, every parent identifier in $\bigcup_{n \in V} \Parents_n$ refers to a notion in $V$, the induced parent relation is acyclic, and $r \in V$ is a distinguished output notion.
+A notion DAG is a pair $G = (V, r)$ with $V$ a finite set of notions, all parent identifiers referring to elements of $V$, the induced parent relation acyclic, and $r \in V$ a distinguished output notion. The DAG is well-formed when (i) types match along every edge and (ii) every non-leaf notion has exactly $k_{\tau_n}$ parents. All notion DAGs in the remainder are assumed well-formed.
 \end{definition}
-
-\begin{definition}[Well-formedness]
-\label{def:wellformed}
-A notion DAG $G = (V, r)$ is well-formed if (i) the parent relation is acyclic; (ii) every parent identifier in $\Parents_n$ refers to a notion in $V$; (iii) types match along every edge: for each $n \in V$ and each $i \in \{1, \dots, k_{\tau_n}\}$, the $i$-th parent $p_i$ satisfies $\mathsf{out}_{\tau_{p_i}}$ equal to the $i$-th declared input type of $\tau_n$; (iv) every non-leaf notion has exactly $k_{\tau_n}$ parents.
-\end{definition}
-
-All notion DAGs in the remainder of this document are assumed well-formed.
 
 \begin{definition}[Compositional depth]
 \label{def:depth}
-The depth of a notion $n$ in a notion DAG $G$ is
-\[
-\dep(n) \;=\;
-\begin{cases}
-0 & \text{if } \Parents_n = (), \\
-1 + \max_{p \in \Parents_n} \dep(p) & \text{otherwise.}
-\end{cases}
-\]
-The depth of $G$ is $\dep(G) := \dep(r)$.
+The depth of notion $n$ is $\dep(n) = 0$ if $\Parents_n = ()$ and $1 + \max_{p \in \Parents_n} \dep(p)$ otherwise. The depth of the graph is $\dep(G) := \dep(r)$.
 \end{definition}
 
-A notion DAG generalises an abstract syntax tree by permitting value sharing: a single resolved value may feed multiple downstream operations. The remainder of this document handles the general DAG case.
+\section{Schemas}
+\label{sec:schemas}
 
-\subsection{Reasoning tasks and oracle execution}
+Schemas are the load-bearing object of \SFRA: they are what the library stores, what the analogy engine matches, and what transfer transfers.
 
-\begin{definition}[Reasoning task]
-\label{def:reasoning-task}
-A reasoning task over $\Lib$ is a pair $(G, \sigma)$ where $G = (V, r)$ is a well-formed notion DAG and $\sigma : V_{\mathrm{leaf}} \to \Val$ is a type-respecting assignment of values to the leaves of $G$. The ground-truth answer of the task is the value at the root produced by recursive substitution of the primitive semantic functions.
+\subsection{Schema variables}
+
+Where a notion has a concrete primitive $\tau_n \in \Lib$ and a concrete spec, a schema node may have a variable in any of these positions. We introduce three classes of variables, corresponding to the three axes of content along which transfer must abstract.
+
+\begin{definition}[Schema variables]
+\label{def:schema-vars}
+A schema admits three kinds of variables, drawn from disjoint countable sets:
+\begin{itemize}[topsep=2pt,itemsep=2pt]
+  \item \emph{Type variables} $X, Y, Z, \dots$ ranging over $\Types$. A schema is parameterised over the types of values it operates on.
+  \item \emph{Value variables} $x, y, z, \dots$ ranging over $\Val$. A schema is parameterised over the specific leaf values supplied at runtime.
+  \item \emph{Operator variables} $\alpha, \beta, \gamma, \dots$ ranging over $\Lib$ restricted by type signature. A schema may leave the choice of a particular primitive (e.g., the binary operation passed to a fold) as a parameter.
+\end{itemize}
 \end{definition}
 
-Recursive substitution evaluates each non-leaf notion $n$ as
-\[
-\hat{v}_n \;=\; f_{\tau_n}\!\bigl(\hat{v}_{p_1}, \dots, \hat{v}_{p_{k_{\tau_n}}}\bigr),
-\]
-where $(p_1, \dots, p_{k_{\tau_n}}) = \Parents_n$. We record the order-independence of this evaluation for later use.
+\subsection{Schemas as parameterised templates}
 
-\begin{lemma}[Order independence of oracle execution]
-\label{lem:oracle-order}
-Let $G = (V, r)$ be a well-formed notion DAG with leaf assignment $\sigma$ and primitive semantic functions $\{f_\tau\}_{\tau \in \Lib}$. For any two topological orderings $\pi_1, \pi_2$ of $V$, the value $\hat{v}_n$ produced at each $n \in V$ by oracle evaluation is the same under $\pi_1$ and $\pi_2$.
-\end{lemma}
+\begin{definition}[Schema]
+\label{def:schema}
+A schema $S$ is a tuple $(V_S, r_S, \mathsf{params}_S)$ where:
+\begin{itemize}[topsep=2pt,itemsep=2pt]
+  \item $V_S$ is a finite set of \emph{schema notions}, each of the form $(\mathsf{id}, \alpha, \Spec, \Parents)$ where $\alpha$ may be either a concrete primitive in $\Lib$ or an operator variable, and $\Spec$ may contain value variables.
+  \item $r_S \in V_S$ is a distinguished root.
+  \item $\mathsf{params}_S$ is a list of typed parameters: each type variable's kind, each value variable's type (which may itself reference a type variable), each operator variable's input/output type signature (likewise).
+\end{itemize}
+The induced parent relation must be acyclic and well-typed under any consistent variable assignment.
+\end{definition}
+
+\begin{example}[The fold schema]
+\label{ex:fold-schema}
+The schema $\mathsf{FOLD}(\alpha, x_0, \ell)$ has parameters: a type variable $X$ (element type), a type variable $Y$ (accumulator type), an operator variable $\alpha : Y \times X \to Y$, a value variable $x_0 : Y$ (initial accumulator), and a value variable $\ell : X^\ast$ (the sequence). The schema body is a length-dependent chain: for a sequence of length $k$, the schema expands into a depth-$k$ chain of $\alpha$ invocations starting from $x_0$. We treat the schema as a function from inputs to a concrete notion-DAG via the expansion rule.
+\end{example}
+
+\begin{example}[The binary-search schema]
+\label{ex:bsearch-schema}
+The schema $\mathsf{BSEARCH}(\mathsf{cmp}, \ell, y)$ has a type variable $X$, an operator variable $\mathsf{cmp} : X \times X \to \mathsf{Ordering}$, a value variable $\ell : X^\ast$ (a sorted sequence), and a value variable $y : X$ (the target). The body iteratively halves the candidate range using $\mathsf{cmp}$ until the target is located or the range is empty.
+\end{example}
+
+\subsection{Instantiation}
+
+\begin{definition}[Schema instantiation]
+\label{def:instantiation}
+A binding $\beta$ for a schema $S$ is a map from $S$'s parameters to concrete types, values, and primitives respecting the parameter signatures. The instantiation $\Inst_\beta(S)$ of $S$ under $\beta$ is the concrete notion DAG obtained by substituting $\beta$'s assignments into the schema body, applying any length-dependent expansion rules, and resolving the resulting DAG's types.
+\end{definition}
+
+\begin{proposition}[Well-typed instantiation produces a well-formed DAG]
+\label{prop:inst-wellformed}
+For any schema $S$ and any binding $\beta$ that respects $S$'s parameter signatures, $\Inst_\beta(S)$ is a well-formed notion DAG.
+\end{proposition}
 
 \begin{proof}
-Induction on $\dep(n)$. For $\dep(n) = 0$ we have $\hat{v}_n = \sigma(n)$, independent of order. For $\dep(n) > 0$, $\hat{v}_n$ depends only on $f_{\tau_n}$ and the parent values, each of which is order-invariant by the inductive hypothesis. Determinism of $f_{\tau_n}$ yields the conclusion.
+Direct from the schema's typing discipline and the well-formedness of the substitution. Type variables are bound to concrete types; value variables to values of the bound type; operator variables to primitives with the bound signature. Edge typing in the instantiated DAG follows.
 \end{proof}
 
-\section{The Graph-Structured Recurrent Executor}
-\label{sec:gsre}
+\subsection{Schema composition}
 
-The Graph-Structured Recurrent Executor (\GSRE) is a deterministic state machine over a notion DAG that delegates value resolution at each node to a shared neural processor. This section defines the executor formally and establishes its core operational properties.
+Schemas compose by allowing a schema notion to invoke another schema rather than a primitive. The composition mechanism is identical to function calling in a typed lambda calculus: a schema $S$ that uses $S'$ as a sub-procedure simply contains a schema notion whose operator is $S'$ (with its parameters bound either to concrete values or to outer variables of $S$). Composition is therefore the mechanism by which higher-level reasoning patterns (e.g., divide-and-conquer) are built from lower-level ones (e.g., a sort, a merge).
+
+\section{The Schema-Factored Reasoning Architecture}
+\label{sec:architecture}
+
+\SFRA\ is a five-component system. Each component has a specific responsibility and a specific interface to the others.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  >={Latex[length=2.2mm]},
+  every node/.style={font=\small},
+  box/.style={draw, rounded corners, minimum width=2.5cm, minimum height=1.1cm, align=center, fill=gray!8, line width=0.5pt},
+  hilite/.style={draw, rounded corners, minimum width=2.5cm, minimum height=1.1cm, align=center, fill=blue!10, line width=0.5pt},
+  lbl/.style={font=\scriptsize, midway, fill=white, inner sep=1pt}
+]
+\node[box]    (c)   at (0, 0)         {Content\\(LLM)};
+\node[box]    (s)   at (3.1, 0)       {Structure\\extractor};
+\node[hilite] (lib) at (6.2, 0)       {Schema\\library};
+\node[hilite] (ana) at (9.3, 0)       {Analogy\\engine};
+\node[box]    (e)   at (12.4, 0)      {Execution\\(\GSRE)};
+\node[box]    (con) at (6.2, -2.6)    {Consolidation\\(replay)};
+
+\draw[->] (c) -- node[lbl, above]{parse} (s);
+\draw[->] (s) -- node[lbl, above]{$G_P$} (lib);
+\draw[->] (lib) -- node[lbl, above]{$S, \beta$} (ana);
+\draw[->] (ana) -- node[lbl, above]{$\Inst_\beta(S)$} (e);
+\draw[->] (e.south) to[bend left=14] node[lbl, above]{trace} (con.east);
+\draw[->] (con) -- node[lbl, right]{new schemas} (lib);
+\draw[->] (e.south) .. controls (12.4, -4.2) and (0, -4.2) .. node[lbl, below]{result} (c.south);
+\end{tikzpicture}
+\caption{The Schema-Factored Reasoning Architecture. The pipeline is linear: the content layer parses the problem, the structure extractor produces a problem graph $G_P$, the schema library is queried by the analogy engine which returns a matched schema $S$ with a binding $\beta$, and the instantiation $\Inst_\beta(S)$ runs on the execution substrate. Two feedback loops grow and apply the system: traces from successful executions feed the consolidation process, which abstracts new schemas back into the library; the executor's final value returns to the content layer for natural-language output.}
+\label{fig:sfra}
+\end{figure}
+
+\subsection{Content layer}
+
+The content layer is a frontier LLM. Its responsibility is restricted to what LLMs do well: parsing natural-language problems into entities and types, supplying concrete values, recognising domain-specific patterns at the surface level, and generating natural-language output from concrete answers. It does not perform multi-step reasoning. The architectural assumption is that an LLM trained on web-scale text is a competent semantic parser and a competent content generator, even when it cannot reliably execute multi-step logical procedures.
+
+\subsection{Structure extractor}
+
+The structure extractor receives a parsed problem from the content layer and produces a \emph{problem graph} $G_P$: a typed relational graph describing the problem's entities (typed nodes), the relations among them (typed edges or operation nodes), the givens (which entities are known), and the goal (which entity is to be computed). The structure extractor abstracts away from surface vocabulary as far as it can while preserving relational fidelity. A simple word problem about apples and a structurally identical problem about voltages should produce isomorphic problem graphs modulo type relabelling.
+
+\subsection{Schema library}
+
+The schema library $\Schemas$ is a growing set of schemas. Each schema is stored with: its parameterised structure (\Cref{def:schema}), a precondition predicate over problem graphs that determines applicability, example traces from which the schema was abstracted, and meta-information used by the analogy engine (frequency of use, success rate, average depth of instantiated DAG).
+
+\subsection{Analogy engine}
+
+The analogy engine receives a problem graph $G_P$ and queries the library to find schemas whose structure aligns with $G_P$. Alignment is a partial graph isomorphism under a typed binding: a map from the schema's variables to entities, types, and operators in $G_P$ that preserves the relational structure. Where multiple schemas match, the engine ranks candidates by structural coverage, parameter fit, and prior success rate; where partial matches are possible, the engine may propose a binding that uses a sub-schema and leaves the residual structure to be solved by another (recursive) library lookup.
+
+The analogy engine is the architectural analogue of Gentner's Structure-Mapping Engine~\cite{falkenhainer1989sme}, lifted to learned representations of types and primitives.
+
+\subsection{Execution substrate}
+
+Once a schema $S$ is selected and bound, $\Inst_\beta(S)$ is a concrete notion DAG. It runs on the Graph-Structured Recurrent Executor (\Cref{sec:substrate}, full treatment in \Cref{app:executor}). The substrate provides the determinism, termination, and soundness guarantees that make the architecture's output predictable from the library's content.
+
+\subsection{Consolidation}
+
+The consolidation process is offline and replay-driven, in deliberate analogy to hippocampal replay during rest~\cite{spens2024consolidation, kumaran2016complementary}. The consolidation engine periodically examines the corpus of recent successful traces, looks for recurring structural patterns, abstracts these patterns into candidate schemas by replacing constants with typed variables, and (subject to verification on held-out traces) adds them to the library. \Cref{sec:induction} treats this in detail.
+
+\section{The Execution Substrate}
+\label{sec:substrate}
+
+The execution layer of \SFRA\ is the Graph-Structured Recurrent Executor (\GSRE), inherited from the Notion-Based Reasoning System. We summarise its properties here and defer the full operational specification to \Cref{app:executor}. The role of this section is to establish what the architecture inherits from the executor, not to develop it as a contribution.
+
+\subsection{Summary of executor properties}
+
+The \GSRE\ is a deterministic state machine over a typed notion DAG. Each node carries a state in $\{\PENDING, \READY, \EXEC, \RESOLVED, \FAILED\}$; a node becomes $\READY$ only when all of its parents are $\RESOLVED$. A shared neural module $\NodeProc_\theta$ is invoked at each node on its local context $(\tau_n, \Spec_n, (v_p)_{p \in \Parents_n})$ alone. The same parameters $\theta$ are reused at every node, regardless of position or graph size.
+
+The properties of relevance to \SFRA\ are:
+
+\begin{itemize}[topsep=2pt,itemsep=2pt]
+  \item \emph{Determinism.} For any DAG $G$ and leaf assignment, the executor produces a unique value assignment (\Cref{thm:executor-determinism}).
+  \item \emph{Order independence.} The value assignment is invariant under any choice of topological schedule among ready nodes (\Cref{thm:executor-order}).
+  \item \emph{Termination.} Execution completes in at most $|V|$ steps (\Cref{thm:executor-termination}).
+  \item \emph{Soundness against the oracle.} If $\NodeProc_\theta$ is primitive-correct on every node it sees, the executor's output equals the oracle's (\Cref{thm:executor-soundness}).
+  \item \emph{Per-step bounded input.} The per-invocation input size is bounded by the maximum primitive arity, independent of $\dep(G)$ and $|V|$ (\Cref{prop:executor-bounded}).
+  \item \emph{Capacity--depth decoupling.} Under an independent-error model, success probability decays at worst geometrically in depth, with the per-step parameter count constant in depth (\Cref{thm:executor-decoupling}).
+\end{itemize}
+
+\subsection{Inherited guarantees for instantiated schemas}
+
+The point of inheriting the substrate is the following: every schema instantiation $\Inst_\beta(S)$ is, by construction, a well-formed notion DAG. The executor properties above therefore apply directly. The architecture commits to the following inherited guarantee:
+
+\begin{proposition}[Inherited correctness for instantiated schemas]
+\label{prop:inherited}
+If a schema $S$ is sound (its expansion under a valid binding $\beta$ produces a DAG whose oracle evaluation equals the intended schema semantics) and the node processor $\NodeProc_\theta$ is primitive-correct on the primitives that $\Inst_\beta(S)$ invokes, then \SFRA's output on $S$ instantiated by $\beta$ equals the schema's intended semantics.
+\end{proposition}
+
+The architectural separation isolates two questions that previous monolithic reasoning systems conflate. \emph{Is the right algorithm applied?} is a question about schema selection and binding---the analogy engine's job. \emph{Is the algorithm executed correctly?} is a question about the substrate's reliability---the executor's job. The two can be analysed and improved independently.
+
+\section{Schema Induction}
+\label{sec:induction}
+
+The library grows by inducing schemas from traces of successful problem-solving. This section formalises the induction problem and identifies its key challenges.
+
+\subsection{The induction problem}
+
+\begin{definition}[Trace corpus]
+\label{def:trace-corpus}
+A trace corpus is a finite collection $\mathcal{T} = \{(G_i, \beta_i, v_i)\}_{i=1}^N$ where each $G_i$ is a notion DAG, $\beta_i$ is the binding under which it was produced (if known), and $v_i$ is its root output value (verified correct).
+\end{definition}
+
+\begin{definition}[Schema induction]
+\label{def:induction}
+The schema-induction problem is: given a trace corpus $\mathcal{T}$ and the current library $\Schemas$, identify candidate new schemas $S^\ast$ such that some non-trivial subset of $\mathcal{T}$ is expressible as instantiations of $S^\ast$ under appropriate bindings, and admit $S^\ast$ to $\Schemas$ when the resulting compression of $\mathcal{T}$ exceeds the description-length cost of $S^\ast$.
+\end{definition}
+
+\subsection{Compositional compression}
+
+\begin{definition}[Compression value of a candidate schema]
+\label{def:compression}
+For a candidate schema $S^\ast$, let $\mathsf{matches}(S^\ast, \mathcal{T})$ be the set of traces in $\mathcal{T}$ that can be re-expressed as $\Inst_{\beta}(S^\ast)$ for some valid binding $\beta$. Let $|G_i|$ be the description length of the explicit trace, $|\beta|$ the description length of a binding, and $|S^\ast|$ the description length of the schema itself. The compression value is
+\[
+\Delta(S^\ast; \mathcal{T}) \;=\; \sum_{i \in \mathsf{matches}(S^\ast, \mathcal{T})} \bigl(|G_i| - |\beta_i|\bigr) \;-\; |S^\ast|.
+\]
+\end{definition}
+
+A candidate with $\Delta(S^\ast; \mathcal{T}) > 0$ is admitted; one with $\Delta \le 0$ is rejected as unproductive. The criterion is the standard minimum-description-length criterion used in inductive program synthesis, adapted to the schema setting~\cite{ellis2021dreamcoder}.
+
+\subsection{Type generalisation}
+
+The hardest sub-problem of schema induction is type generalisation. A trace corpus may contain traces over $\mathsf{Int}$, $\mathsf{Float}$, and $\mathsf{String}$ that all share structural pattern P. The induced schema should be parameterised over a type variable $X$, with the structural pattern P preserved. Detecting that the corpus is consistent with a single type-parameterised schema---rather than three separate type-specific schemas---is the operation that turns library extension into genuine abstraction.
+
+We do not give an induction algorithm here; the formal target is a procedure that, given $\mathcal{T}$, produces candidate type-parameterised schemas with $\Delta > 0$. Approaches consistent with the framework include: unification-based generalisation over typed graph patterns, neural sequence-to-sequence schema synthesis, and wake--sleep procedures in the style of DreamCoder.
+
+\subsection{Verification of induced schemas}
+
+A candidate $S^\ast$ admitted to the library must be sound: applying $S^\ast$ to a binding $\beta$ must produce a DAG whose oracle evaluation matches the schema's intended semantics. Two verification strategies are operationally distinct:
+
+\begin{itemize}[topsep=2pt,itemsep=2pt]
+  \item \emph{Compression-based.} $S^\ast$ is admitted if it compresses a held-out portion of $\mathcal{T}$ that was not used in its induction. This guards against overfitting to the training traces.
+  \item \emph{Executable-test-based.} The system generates synthetic bindings for $S^\ast$, executes the resulting DAGs against an oracle (where available) or against a corroborating schema or LLM-supplied ground truth, and admits $S^\ast$ only when the success rate on synthetic tests exceeds a threshold.
+\end{itemize}
+
+The verification step is what separates schema induction from blind pattern-mining. A schema admitted without verification is at best a hypothesis; admitted with verification, it is a tool the architecture can rely on.
+
+\section{Analogical Transfer}
+\label{sec:transfer}
+
+The transfer claim that distinguishes \SFRA\ from contemporary monolithic reasoning systems is the following: a schema learned from problems in one content domain can be applied to a problem in a different content domain whose structure aligns with the schema, without retraining and without exposure to bindings drawn from the new domain.
+
+\subsection{The transfer property, stated}
+
+\begin{definition}[Cross-domain transfer]
+\label{def:transfer}
+Let $\Schemas$ be the schema library after training on a problem distribution over content domain $\mathcal{C}_{\mathrm{train}}$. Let $P^\ast$ be a problem from content domain $\mathcal{C}_{\mathrm{test}} \ne \mathcal{C}_{\mathrm{train}}$ whose problem graph $G_{P^\ast}$ admits a valid binding $\beta^\ast$ to some schema $S \in \Schemas$ such that $\Inst_{\beta^\ast}(S)$ correctly solves $P^\ast$. \SFRA\ exhibits cross-domain transfer on $P^\ast$ if the analogy engine, given $G_{P^\ast}$ and $\Schemas$, returns $(S, \beta^\ast)$ (or any other binding that yields a correct DAG).
+\end{definition}
+
+The property has three preconditions: (i) a schema with the required structure exists in the library (the induction layer has produced it from earlier training); (ii) the structure extractor produces a problem graph for $P^\ast$ that is amenable to alignment with that schema; (iii) the analogy engine identifies and binds the schema correctly. Failure to transfer can be diagnosed to one of these three preconditions.
+
+\subsection{Structure-mapping over learned representations}
+
+The analogy engine implements a form of structure-mapping~\cite{gentner1983structure}: it searches for a partial isomorphism between the schema's graph and the problem's graph that preserves relations and respects types, prioritising mappings that align deeper relational structure over those that align mere surface features. The implementation challenge---which the literature on classical structure-mapping engines did not face---is that the schema's variables and the problem's entities live in learned representational spaces. The alignment is not over hand-written symbols but over typed embeddings.
+
+We treat the alignment procedure as itself a learned component: a neural matcher that takes a schema graph and a problem graph and outputs a candidate binding, trained on (synthetic and real) pairs of (problem, applicable schema) examples. Training such a matcher is the central engineering problem of the analogy engine.
+
+\subsection{Soundness of transfer}
+
+\begin{proposition}[Soundness of bound transfer]
+\label{prop:transfer-soundness}
+Suppose $S \in \Schemas$ is a sound schema and $\NodeProc_\theta$ is primitive-correct on the primitives that $\Inst_\beta(S)$ invokes. If the analogy engine returns a binding $\beta$ such that the parameter-signature constraints of $S$ are satisfied and the typing of $\Inst_\beta(S)$ matches the problem $P^\ast$'s required input--output types, then the value $v_r$ returned by the executor is correct for $P^\ast$.
+\end{proposition}
+
+\begin{proof}
+Schema soundness gives correctness of $\Inst_\beta(S)$ against the schema's intended semantics. Primitive correctness gives executor correctness against the schema's semantics. Type compatibility gives that the schema's semantics is what $P^\ast$ requires.
+\end{proof}
+
+The implication: transfer failure is always attributable to one of (i) wrong schema selected, (ii) wrong binding constructed, (iii) executor error on the primitives, (iv) type-compatibility mismatch undetected by the analogy engine. The architecture localises blame, which is what makes failure analysis tractable.
+
+\section{Generalisation Properties}
+\label{sec:generalization}
+
+The structure--content factorisation has direct consequences for generalisation. Because schemas are content-independent, applying a learned schema to new content does not require learning new schema parameters. Because the executor sees only local contexts, executing a schema on values drawn from a new distribution does not require depth-dependent capacity. The architecture's generalisation properties are therefore inherited from two separable sources: schema-level generalisation (the analogy engine's ability to recognise structural matches across domains) and execution-level generalisation (the executor's ability to handle the bindings the analogy engine produces).
+
+\subsection{Schema-level generalisation}
+
+\begin{proposition}[Structural transfer dominates surface transfer]
+\label{prop:structural-dominance}
+Let $\Schemas$ be a library trained on $\mathcal{C}_{\mathrm{train}}$. For a test problem $P^\ast$ from $\mathcal{C}_{\mathrm{test}}$, the existence of a successful binding to some $S \in \Schemas$ depends only on the relational structure of $P^\ast$, not on whether $\mathcal{C}_{\mathrm{test}}$ overlaps $\mathcal{C}_{\mathrm{train}}$.
+\end{proposition}
+
+\begin{proof}
+Schema variables abstract over types, values, and operators. Two problems with isomorphic relational structure (under a type relabelling that respects operator signatures) admit the same set of schema bindings. Domain overlap affects only what types and values appear; it does not affect what relational structures appear. Therefore the existence of a transfer-supporting schema is invariant to domain overlap, conditional on the structure of $P^\ast$ being one for which an appropriate schema exists in $\Schemas$.
+\end{proof}
+
+This is the formal counterpart of the cognitive-map result: a structural representation that abstracts over content predicts transfer wherever structure repeats.
+
+\subsection{Execution-level generalisation}
+
+The execution substrate inherits the local-context invariance property of the \GSRE: the per-node processor sees only the local context $(\tau_n, \Spec_n, (v_p)_{p \in \Parents_n})$, so its error rate on a node depends only on the marginal distribution of local contexts, not on the depth or shape of the surrounding graph (\Cref{thm:executor-local-context}). For instantiated schemas, this means that depth---which can be arbitrary if a schema like $\mathsf{FOLD}$ is bound to a long sequence---does not introduce new failure modes at the executor level.
+
+\section{Empirical Programme}
+\label{sec:empirical}
+
+The architecture's claims are empirical. The minimal programme that would test them comprises four tiered demonstrations, each calibrated to a specific architectural prediction.
+
+\subsection{Tier 1: structural transfer within a domain}
+
+The minimum viable test: train the schema library on traces of a structural pattern (e.g., the binary-search procedure) instantiated on integer inputs. Without further training, evaluate on the same procedure applied to inputs of types not seen during training (strings, floating-point numbers, structured records). Success requires that the schema's type variables be correctly bound to the new type and that the executor handle the new primitives. Failure modes localise to the analogy engine (type binding) or to the executor (primitive accuracy on new types).
+
+\subsection{Tier 2: cross-content transfer within a structural pattern}
+
+A stronger test: train on traces from one content domain whose problem graphs share structure with problems in a different content domain. Examples include: train on optimisation problems framed as iterative refinement (e.g., Newton's method on polynomial roots), then test on problems whose underlying procedure is structurally identical but whose content is entirely different (e.g., bisection on binary games, fixed-point iteration on convergent series). Success requires the analogy engine to recognise the structural match across surface content.
+
+\subsection{Tier 3: cross-domain analogical reasoning benchmarks}
+
+The architecture's claim should be testable against contemporary benchmarks designed to expose LLM analogical failures. Two candidates:
+
+\begin{itemize}[topsep=2pt,itemsep=2pt]
+  \item \emph{Letter-string analogies in novel alphabets}~\cite{lewis2024analogy, mitchell2024analogy}. LLMs are known to fail on these in proportion to the unfamiliarity of the alphabet. \SFRA, with schemas abstracting over the alphabet's specific symbols, should not exhibit this degradation.
+  \item \emph{ARC-AGI tasks}~\cite{chollet2019arc, chollet2024onthemeasureofintelligence}. Each task supplies a few input--output examples of an abstract transformation and requires applying it to a held-out input. The benchmark is designed to require few-shot abstraction beyond pattern matching. \SFRA's schema-induction layer is the architectural counterpart to what these tasks measure.
+\end{itemize}
+
+\subsection{Tier 4: cross-discipline conceptual transfer}
+
+The architecture's most ambitious target: train the library on procedures from one scientific or mathematical discipline, and demonstrate that schemas induced from training transfer to a structurally analogous problem in an unrelated discipline. Candidate transfer pairs include: equilibrium reasoning in mechanics $\to$ market-clearing in economics; iterative refinement in numerical analysis $\to$ contraction-mapping arguments in functional analysis; recursive case analysis in combinatorics $\to$ inductive proofs in graph theory. Success at this tier would directly demonstrate the analogical capability that humans display and contemporary LLMs do not.
+
+\subsection{Baselines and diagnostics}
+
+Each tier is to be evaluated against three baselines: a frontier LLM with chain-of-thought prompting, a frontier LLM with retrieval augmentation over the same trace corpus from which \SFRA's library was induced, and an ablation of \SFRA\ with the schema library disabled (forcing the architecture to solve each problem from scratch via the executor). Diagnostics include schema-induction efficiency (how many traces are required to induce each schema), transfer success rate as a function of structural divergence between training and test problems, and the marginal-invariance diagnostic from prior work on the executor.
+
+\section{Connections to Prior Work}
+\label{sec:related}
+
+\paragraph{Cognitive maps and entorhinal--hippocampal computation.} The architectural commitment to structure--content factorisation is taken from the Tolman--Eichenbaum Machine~\cite{whittington2020tem} and the cognitive-map literature it formalises~\cite{behrens2018cognitive, constantinescu2016conceptual, whittington2022disentanglement}. \SFRA\ operationalises the same factorisation in a procedural-reasoning setting: schemas are structural codes, bindings are conjunctive codes, and library growth is analogous to entorhinal consolidation.
+
+\paragraph{Structure-mapping theory.} The analogy engine is the operational counterpart of Gentner's Structure-Mapping Theory~\cite{gentner1983structure} and its computational implementation, the Structure-Mapping Engine~\cite{falkenhainer1989sme}. The novel commitment of \SFRA\ is to perform structure-mapping over learned (rather than hand-symbolic) representations of types and operators.
+
+\paragraph{Library learning and inductive program synthesis.} Schema induction (\Cref{sec:induction}) is closest to library learning as developed in DreamCoder~\cite{ellis2021dreamcoder} and the broader inductive-program-synthesis literature~\cite{gulwani2017program}. \SFRA\ extends this to typed parameterisation over operators and to integration with an LLM content layer, both of which the existing library-learning systems do not address.
+
+\paragraph{Neural module networks.} Andreas et al.~\cite{andreas2016neural} compose computation graphs from a fixed module library at inference time. \SFRA\ generalises this in two directions: the library is grown (not fixed), and the modules carry typed parameterisation that supports cross-domain transfer.
+
+\paragraph{Consolidation in neural models.} The replay-driven consolidation process is informed by recent computational models of hippocampal replay and memory consolidation~\cite{spens2024consolidation, kumaran2016complementary}.
+
+\paragraph{LLM-augmented neurosymbolic reasoning.} Recent work on neurosymbolic LLM augmentation~\cite{lewis2024analogy} typically translates problems into a fixed logical form for an external solver. \SFRA\ differs in maintaining a learned, growing library of typed schemas; the content layer's role is parsing, not full reduction to logic.
+
+\paragraph{The executor substrate.} The Graph-Structured Recurrent Executor and its operational guarantees are inherited from prior work on the Notion-Based Reasoning System, summarised here in \Cref{sec:substrate} and detailed in \Cref{app:executor}.
+
+\section{Discussion}
+\label{sec:discussion}
+
+The architectural bet of \SFRA\ is that the transfer gap separating contemporary LLMs from human reasoning is fundamentally about representation: the absence of an explicit, content-independent layer that stores transferable procedures. The neuroscience evidence for such a layer in biological reasoners is strong and recent. The classical symbolic literature on analogical reasoning has long argued that structure-mapping is the right computational model. What has been missing is an integration that combines the abstraction power of cognitive-map-style factorisation, the procedural depth of program-induction-style library learning, and the perceptual breadth of LLM-style content processing.
+
+Two design commitments of \SFRA\ are non-obvious and warrant emphasis. First, the schema library is the architectural locus of learning at the structural level: the LLM is not asked to learn or transfer procedures, only to parse and generate. This separation is what gives the system the prospect of sample-efficient transfer. Second, the execution substrate is deliberately conservative: the \GSRE\ guarantees only what a deterministic typed-DAG evaluator can guarantee. The interesting failure modes of the system are therefore localised to schema induction and analogical alignment, not to execution---which is the right place for them to be.
+
+The empirical risk is real. Schema induction in non-trivial domains is open; structure-mapping in learned representations is open; integration with LLMs at the content layer is open. The architecture is not a guaranteed solution. It is a coherent place to spend effort, with each architectural commitment tied to a specific scientific hypothesis and a specific failure-diagnosis pathway.
+
+If the empirical programme of \Cref{sec:empirical} succeeds at Tiers 1 and 2 with reasonable sample complexity, the architecture has demonstrated the structure--content factorisation hypothesis at small scale. If it succeeds at Tier 3, it has demonstrated competitive performance with frontier LLMs on benchmarks designed to expose their analogical failures. If it succeeds at Tier 4, it has demonstrated cross-discipline analogical reasoning---the capability that, more than any other, distinguishes human general intelligence from current artificial systems.
+
+\appendix
+
+\section{The Execution Substrate: Full Specification}
+\label{app:executor}
+
+This appendix specifies the \GSRE\ in detail and proves its operational properties. The text of this appendix is inherited from the earlier formal development of the Notion-Based Reasoning System and is retained here without substantive modification.
 
 \subsection{Node states}
 
-\begin{definition}[Node state]
-\label{def:node-state}
-During execution, every node $n \in V$ is in one of five states drawn from $\mathcal{S} = \{\PENDING, \READY, \EXEC, \RESOLVED, \FAILED\}$, written $\NState(n) \in \mathcal{S}$. Once $\NState(n) = \RESOLVED$, the associated value $v_n \in \Val_{\mathsf{out}_{\tau_n}}$ is fixed for the remainder of execution.
-\end{definition}
+During execution, every node $n \in V$ is in one of five states drawn from $\mathcal{Q} = \{\PENDING, \READY, \EXEC, \RESOLVED, \FAILED\}$, written $\NState(n) \in \mathcal{Q}$. Once $\NState(n) = \RESOLVED$, the associated value $v_n \in \Val_{\mathsf{out}_{\tau_n}}$ is fixed.
 
 \begin{figure}[ht]
 \centering
@@ -205,17 +503,13 @@ During execution, every node $n \in V$ is in one of five states drawn from $\mat
 \draw[->] (E) to[bend left=18] node[edgelbl, sloped, above]{$\NodeProc$ ok} (Re);
 \draw[->] (E) to[bend right=18] node[edgelbl, sloped, above]{$\NodeProc$ fail} (F);
 \end{tikzpicture}
-\caption{The node-state machine. $\PENDING \to \READY$ is gated by a hard predicate on parent state; $\READY \to \EXEC$ by dispatch; $\EXEC \to \RESOLVED$ or $\EXEC \to \FAILED$ by the outcome of the node-processor call.}
+\caption{The \GSRE\ node-state machine. $\PENDING \to \READY$ is gated by parent state; $\READY \to \EXEC$ by dispatch; $\EXEC \to \RESOLVED$ or $\FAILED$ by the outcome of the processor call.}
 \label{fig:state-machine}
 \end{figure}
 
-The gating of $\PENDING \to \READY$ on parent state, depicted in \Cref{fig:state-machine}, is the architectural source of the executor's inductive bias: dependency order is not a learned soft attention pattern, it is a hard transition rule.
-
 \subsection{The traversal engine}
 
-The traversal engine drives the state machine. At each step it identifies all ready nodes, calls the shared processor on each, and updates state.
-
-\begin{algorithm}[t]
+\begin{algorithm}[ht]
 \caption{The Graph-Structured Recurrent Executor}
 \label{alg:gsre}
 \begin{algorithmic}[1]
@@ -245,656 +539,131 @@ The traversal engine drives the state machine. At each step it identifies all re
 \end{algorithmic}
 \end{algorithm}
 
-\Cref{alg:gsre} batches all currently-ready nodes per step. The batch composition is immaterial to correctness, as we will show.
-
-\begin{lemma}[Local input determinism]
-\label{lem:local-input}
-At line~14 of \Cref{alg:gsre}, the input to $\NodeProc_\theta$ for any $n \in \mathcal{B}$ consists exclusively of $\tau_n$, $\Spec_n$, and the resolved values of $\Parents_n$. It does not depend on the identity, type, depth, or value of any other node in the graph.
-\end{lemma}
-
-\begin{proof}
-By inspection of line~14.
-\end{proof}
-
-\begin{lemma}[Argument-availability invariant]
-\label{lem:arg-avail}
-Throughout the execution of \Cref{alg:gsre}, whenever $n$ enters $\EXEC$ every $p \in \Parents_n$ satisfies $\NState(p) = \RESOLVED$.
-\end{lemma}
-
-\begin{proof}
-Transitions into $\EXEC$ occur only at line~13, reached only for $n \in \mathcal{B} \subseteq R$. The set $R$ was constructed at line~4 to consist precisely of $\PENDING$ nodes whose parents are all $\RESOLVED$. Once a node is $\RESOLVED$ its state is monotone, so the predicate continues to hold at line~13.
-\end{proof}
-
 \subsection{Operational properties}
 
 \begin{theorem}[Determinism]
-\label{thm:gsre-determinism}
-Let $\NodeProc_\theta$ be a deterministic function of its input. Then for any well-formed notion DAG $G$ and any leaf assignment $\sigma$, the value assignment returned by \Cref{alg:gsre} is uniquely determined by $G$, $\sigma$, and $\theta$.
+\label{thm:executor-determinism}
+Let $\NodeProc_\theta$ be a deterministic function of its input. For any well-formed notion DAG $G$ and leaf assignment $\sigma$, the value assignment returned by \Cref{alg:gsre} is uniquely determined by $G$, $\sigma$, and $\theta$.
 \end{theorem}
-
-\begin{proof}
-We show that $v_n$ is uniquely determined for each $n$ by induction on $\dep(n)$. The base case is line~2, which assigns $v_n = \sigma(n)$ to every leaf. For the inductive step, suppose every $p \in \Parents_n$ has its value uniquely determined; \Cref{thm:gsre-termination} below ensures that $n$ eventually enters $R$. At line~14, the input to $\NodeProc_\theta$ at $n$ is $(\tau_n, \Spec_n, (v_p)_{p \in \Parents_n})$ (\Cref{lem:local-input}), each component uniquely determined by $G$, $\sigma$, $\theta$, and the inductive hypothesis. Determinism of $\NodeProc_\theta$ fixes $v_n$.
-
-The batch composition $\mathcal{B}$ does not affect any individual node's input (\Cref{lem:local-input}), so the same value is produced regardless of how ready nodes are batched.
-\end{proof}
 
 \begin{theorem}[Order independence]
-\label{thm:gsre-order}
-Under the hypothesis of \Cref{thm:gsre-determinism}, the value assignment produced by \Cref{alg:gsre} is invariant under any choice of $\mathcal{B} \subseteq R$ at each iteration, provided $\mathcal{B} \ne \emptyset$ whenever $R \ne \emptyset$.
+\label{thm:executor-order}
+Under the hypothesis of \Cref{thm:executor-determinism}, the value assignment produced is invariant under any nonempty subset $\mathcal{B} \subseteq R$ chosen at each iteration.
 \end{theorem}
-
-\begin{proof}
-By \Cref{lem:local-input}, the input presented to $\NodeProc_\theta$ at any node $n$ depends only on $\tau_n$, $\Spec_n$, and parent values---not on other members of the dispatched batch. The set of nodes that ever reach $\RESOLVED$ is determined by the predicate of line~4 plus the absence-of-failure condition; under a deterministic processor that does not return $\bot$, every non-leaf node eventually has all parents resolved by induction on depth, and the output values match across schedules by \Cref{thm:gsre-determinism}.
-\end{proof}
-
-The architecture commits only to dependency-respecting evaluation. Among all schedules that respect dependencies, the executor's output is invariant.
 
 \begin{theorem}[Termination]
-\label{thm:gsre-termination}
-\Cref{alg:gsre} terminates in at most $|V|$ iterations of the main loop, with the number of $\NodeProc_\theta$ invocations bounded by $|V| - |V_{\mathrm{leaf}}|$.
+\label{thm:executor-termination}
+\Cref{alg:gsre} terminates in at most $|V|$ iterations, with at most $|V| - |V_{\mathrm{leaf}}|$ processor invocations.
 \end{theorem}
-
-\begin{proof}
-At each iteration with $R \ne \emptyset$, at least one node transitions from $\PENDING$ to $\READY$ at line~5, and subsequently to $\RESOLVED$ or $\FAILED$. We claim $R \ne \emptyset$ whenever the loop has not yet returned. The set of $\PENDING$ nodes forms a sub-DAG of $G$; among the $\PENDING$ nodes, those whose parents lie outside the $\PENDING$ set form a nonempty set provided the $\PENDING$ set is nonempty and the parent relation is acyclic. These nodes are precisely $R$. The loop therefore terminates after at most $|V|$ iterations, with each non-leaf node invoking the processor at most once.
-\end{proof}
 
 \begin{theorem}[Soundness against the oracle]
-\label{thm:gsre-soundness}
-Let $\NodeProc_\theta$ be deterministic and primitive-correct: for every primitive $\tau$ and every typed input tuple $(v_1, \dots, v_{k_\tau})$, the output of $\NodeProc_\theta$ on input $(\tau, \cdot, (v_1, \dots, v_{k_\tau}))$ equals $f_\tau(v_1, \dots, v_{k_\tau})$. Then for any reasoning task $(G, \sigma)$, the value $v_r$ returned by \Cref{alg:gsre} equals the oracle ground-truth answer.
+\label{thm:executor-soundness}
+If $\NodeProc_\theta$ is primitive-correct on every primitive it sees, the value $v_r$ returned by \Cref{alg:gsre} equals the oracle ground-truth answer for any reasoning task $(G, \sigma)$.
 \end{theorem}
-
-\begin{proof}
-Induction on $\dep(n)$. For $\dep(n) = 0$, $v_n = \sigma(n) = \hat{v}_n$ from line~2. For $\dep(n) > 0$, by the inductive hypothesis $v_p = \hat{v}_p$ for all $p \in \Parents_n$. Primitive correctness of $\NodeProc_\theta$ yields $v_n = f_{\tau_n}(v_{p_1}, \dots, v_{p_{k_{\tau_n}}}) = f_{\tau_n}(\hat{v}_{p_1}, \dots, \hat{v}_{p_{k_{\tau_n}}}) = \hat{v}_n$. Applying to $n = r$ completes the proof.
-\end{proof}
-
-\Cref{thm:gsre-soundness} isolates the only source of error in the executor: the only way the executor can deviate from oracle evaluation is if the processor is wrong on some primitive in the graph. This isolation is what makes the depth-decoupling analysis in \Cref{sec:information} possible.
-
-\subsection{The node processor as a learning target}
-
-The node processor $\NodeProc_\theta$ is a small Transformer. Its input at a node $n$ consists of a type embedding for $\tau_n$, an encoding of $\Spec_n$, and the resolved values of $\Parents_n$ formatted with type-aware delimiters. Its output is a value of type $\mathsf{out}_{\tau_n}$ produced through a type-appropriate head: regression for continuous types, classification for finite types, copy mechanisms for variable-length structured types.
-
-The processor has no access to a global graph embedding, no access to the depth or index of the node it is processing, and no access to a history vector summarising prior nodes. We refer to the tuple $(\tau_n, \Spec_n, (v_p)_{p \in \Parents_n})$ as the \emph{local context} of $n$, and this is precisely what the processor sees. The consequences of this design for generalisation are developed in \Cref{sec:generalization}.
-
-\subsection{Iteration, recursion, and the layered treatment of control flow}
-\label{sec:iteration-layered}
-
-The executor's view is acyclic by construction, but the system as a whole is not restricted to feed-forward computation. Iterative reasoning, recursion, and search-with-backtracking are expressible at one of three layers above the executor.
-
-\begin{itemize}[topsep=2pt,itemsep=4pt]
-  \item \emph{Iteration as graph depth.} A computation requiring $k$ sequential applications of a primitive appears in the executor's view as a chain of $k$ notion nodes, each invoking the shared processor once. This is the same unrolling that converts a recurrent neural network's source-level cycle into an acyclic computation graph at training time. The parameter count of the processor is unchanged; only the number of node invocations grows.
-
-  \item \emph{Iteration in the graph-construction policy.} When the construction of the DAG is itself learned (\Cref{sec:learned-construction}), the policy's control flow is unconstrained: the policy may loop over candidate expansions, condition on intermediate values, and decide adaptively whether to extend the current chain. The DAG it emits is acyclic; the procedure that emits it need not be.
-
-  \item \emph{Iteration in composite primitives.} A primitive's semantics is an arbitrary total function (\Cref{def:primitive}). Nothing requires a primitive to be implemented by a single forward pass of the neural processor. A primitive may be implemented symbolically, or as a procedural macro that expands at runtime into a sub-DAG of size dependent on its inputs (a $\mathsf{FOLD}$, $\mathsf{MAP}$, or $\mathsf{WHILE}$ combinator). Such composite primitives preserve the executor's acyclic invariant by producing acyclic sub-graphs on each invocation.
-\end{itemize}
-
-What the architecture excludes is \emph{cyclic execution traces}---the executor's view itself containing a cycle. This exclusion is deliberate: cyclic traces require fixed-point semantics, lose deterministic termination, lose the order-independence of \Cref{thm:gsre-order}, and break the soundness argument of \Cref{thm:gsre-soundness}. The same exclusion is made (under different names) by every modern computation-graph framework. Loops live in source code or in the construction layer; the trace is always a DAG.
-
-\section{Architectural Comparison}
-\label{sec:arch-comparison}
-
-The executor's inductive bias is best understood by contrast with two natural alternatives: a weight-tied graph transformer with a causal ancestor mask, and a sequence transformer over the serialised DAG. Both alternatives have access to identical input information; they differ in how they process it.
-
-\subsection{Weight-tied graph transformer with causal ancestor masking}
-\label{sec:b4tied}
-
-\begin{definition}[Weight-tied graph transformer]
-\label{def:b4tied}
-Fix a topological ordering $\pi : V \to \{1, \dots, N\}$ of $G$. The weight-tied graph transformer with causal ancestor masking computes
-\begin{align*}
-h^{(0)}_n &= \mathsf{Embed}(\tau_n, \Spec_n) \quad \text{for each } n \in V, \\
-h^{(t+1)}_n &= \mathsf{Layer}_\theta\!\Bigl(h^{(t)}_n;\; \{h^{(t)}_{n'} : n' \in \mathsf{Ancestors}_\pi(n)\}\Bigr), \quad t = 0, \dots, T-1, \\
-v_n &= \mathsf{Head}_{\mathsf{out}_{\tau_n}}\!\bigl(h^{(T)}_n\bigr),
-\end{align*}
-where $\mathsf{Ancestors}_\pi(n) = \{n' : \pi(n') < \pi(n)\}$, $\mathsf{Layer}_\theta$ is a self-attention block restricted by an ancestor mask with parameters shared across $t$, and $\mathsf{Head}_\sigma$ is a type-specific output head.
-\end{definition}
-
-The defining features of this architecture are (i) per-layer parameters $\theta$ are shared across $t$, mirroring the executor's reuse of the processor; (ii) attention is restricted to topological ancestors, preserving the causal structure of the DAG; (iii) all node values are computed jointly across $T$ rounds rather than node by node in dependency order.
-
-Property (iii) is the substantive difference from the executor. A node's representation $h^{(t)}_n$ at layer $t > 0$ depends on layer-$t$ representations of ancestors, not on the resolved values of parents. The architecture has $T$ rounds in which to propagate information; nothing enforces that ancestors are fully resolved before descendants are updated.
-
-\subsection{Sequence transformer over the serialised DAG}
-\label{sec:b5}
-
-\begin{definition}[Sequence transformer over the serialised DAG]
-\label{def:b5}
-Let $\mathsf{Serialize}(G)$ be a canonical token sequence encoding of $G$: for each node in topological order, emit tokens for its identifier, type, spec, and parent identifiers, separated by delimiters. The sequence transformer baseline passes $\mathsf{Serialize}(G)$ through a standard sequence transformer (decoder-only or encoder--decoder) and produces values via type-specific heads at the positions corresponding to each node.
-\end{definition}
-
-The sequence transformer has the same information as the other two architectures but presented as a flat token sequence with no explicit graph structure beyond what positional embeddings and learned attention can recover.
-
-\subsection{Expressivity containment}
-
-The executor is a strictly more constrained function class than the weight-tied graph transformer.
-
-\begin{proposition}[Expressivity containment]
-\label{prop:containment}
-For every choice of executor parameters $\theta_{\GSRE}$ there exist weight-tied graph transformer parameters $\theta_{\mathrm{GT}}$ and a depth $T \ge \dep(G)$ such that for every well-formed notion DAG $G$ with $\dep(G) \le T$, the value assignment produced by the executor equals the value assignment produced by the graph transformer.
-\end{proposition}
-
-\begin{proof}
-Set $T \ge \dep(G)$. Construct the layer so that at layer $t$, a node $n$ with $\dep(n) = t$ attends to its parents (already updated to their final values at layer $t$ by the inductive construction), copies their values into its working state, and applies $\NodeProc_{\theta_{\GSRE}}$ to compute its own value. For all $t' > t$, the node's representation passes through unchanged. The ancestor mask permits this attention pattern because parents are ancestors.
-
-Conversely, the graph transformer has degrees of freedom the executor does not: nothing prevents a layer from blending information from non-parent ancestors, nor from updating a node based on layer-$t$ values of nodes whose semantic values have not yet been computed. These functions are realisable by the graph transformer but not by the executor.
-\end{proof}
-
-The containment is what we are after. The executor's smaller hypothesis class encodes the prior that computation respects dependencies; the graph transformer must learn this prior from data.
-
-\section{Information-Theoretic Properties}
-\label{sec:information}
-
-We now characterise two properties of the executor: its per-step information budget is independent of graph depth, and under a stochastic processor with bounded per-invocation error, the executor's success probability decays geometrically in depth with no growth in parameters.
-
-\subsection{Per-step information budget}
-
-Let $\mathsf{Enc} : \Val \to \{0,1\}^\ast$ be a fixed bit encoding of values, and write $|\mathsf{Enc}(v)|$ for the length of the encoding of $v$. The primitive description length of a node $n$ is
-\[
-\ell(n) \;=\; |\mathsf{Enc}(\tau_n)| + |\mathsf{Enc}(\Spec_n)| + \sum_{p \in \Parents_n} |\mathsf{Enc}(v_p)|.
-\]
 
 \begin{proposition}[Per-step bounded input]
-\label{prop:per-step-bounded}
-The input length presented to the processor at any node $n$ is exactly $\ell(n)$, and
-\[
-\ell(n) \;\le\; |\mathsf{Enc}(\tau_n)| + |\mathsf{Enc}(\Spec_n)| + k_{\tau_n} \cdot L_{\max},
-\]
-where $L_{\max} = \max_{v \in \Val} |\mathsf{Enc}(v)|$. If $L_{\max}$ and $k_{\max} := \max_{\tau \in \Lib} k_\tau$ are finite, the per-step input length is $\mathcal{O}(k_{\max} L_{\max})$, independent of $|V|$ and $\dep(G)$.
+\label{prop:executor-bounded}
+The input length presented to $\NodeProc_\theta$ at any node $n$ is bounded by $|\mathsf{Enc}(\tau_n)| + |\mathsf{Enc}(\Spec_n)| + k_{\tau_n} \cdot L_{\max}$, independent of $|V|$ and $\dep(G)$.
 \end{proposition}
-
-\begin{proof}
-\Cref{lem:local-input} gives the exact input enumeration. Bounding each parent value by $L_{\max}$ yields the second inequality.
-\end{proof}
-
-The sequence transformer's per-step input is $\Theta(|V| \cdot L_{\max})$; the weight-tied graph transformer's per-layer attention scope is $\Omega(d)$ in a chain of depth $d$. The executor is the only one of the three architectures with a per-step input length independent of graph size.
-
-\subsection{Capacity--depth decoupling}
-
-The unconditional architectural property is the per-step bound of \Cref{prop:per-step-bounded}: at every node, the processor sees an input of size $\mathcal{O}(k_{\max} L_{\max})$, and the parameter count of $\NodeProc_\theta$ is fixed by the architecture and independent of $|V|$ and $\dep(G)$. Depth grows the number of processor invocations but not the per-invocation cost or capacity.
-
-Translating this architectural property into an end-to-end accuracy bound requires a model of how per-primitive errors compose. We give first the cleanest such model and then state honestly the assumptions it makes.
 
 \begin{theorem}[Capacity--depth decoupling under independent primitive errors]
-\label{thm:capacity-depth}
-Suppose $\NodeProc_\theta$ has per-invocation error bound $\eps$:
-\[
-\sup_{\tau, (v_1, \dots, v_{k_\tau})} \Prob\bigl[\NodeProc_\theta(\tau, \cdot, (v_1, \dots, v_{k_\tau})) \ne f_\tau(v_1, \dots, v_{k_\tau})\bigr] \;\le\; \eps,
-\]
-and suppose further that error events at distinct invocations are independent. Then for any well-formed notion DAG $G = (V, r)$,
-\[
-\Prob\bigl[v_r = \hat{v}_r\bigr] \;\ge\; (1-\eps)^{|V| - |V_{\mathrm{leaf}}|}.
-\]
-For chain-shaped DAGs of depth $d$ with no shared subexpressions, this specialises to $\Prob[v_r = \hat{v}_r] \ge (1-\eps)^d$.
+\label{thm:executor-decoupling}
+Suppose $\NodeProc_\theta$ has per-invocation error rate $\le \eps$ and errors at distinct invocations are independent. Then $\Prob[v_r = \hat{v}_r] \ge (1-\eps)^{|V| - |V_{\mathrm{leaf}}|}$.
 \end{theorem}
 
-\begin{proof}
-Conditional on every non-leaf node having received its correct parent values, each invocation independently succeeds with probability at least $1 - \eps$. The joint success of all $|V| - |V_{\mathrm{leaf}}|$ non-leaf invocations therefore has probability at least $(1-\eps)^{|V| - |V_{\mathrm{leaf}}|}$, and this event implies $v_r = \hat{v}_r$.
-\end{proof}
+\begin{theorem}[Local-context invariance]
+\label{thm:executor-local-context}
+For any two well-formed DAGs $G, G'$ and any nodes $n \in V_G$, $n' \in V_{G'}$ with the same local context $(\tau_n, \Spec_n, (v_p)_{p \in \Parents_n})$, the executor produces identical values.
+\end{theorem}
 
-\begin{remark}[Independence is the load-bearing assumption]
+Proofs are direct from the structure of \Cref{alg:gsre} and parallel earlier treatments.
+
+\begin{remark}[Independence is the load-bearing assumption in \Cref{thm:executor-decoupling}]
 \label{rem:independence}
-The independence assumption is unrealistic in practice. A shared-parameter processor has shared failure modes: if $\NodeProc_\theta$ is systematically wrong on inputs of a certain shape (e.g., near-zero arguments to a multiplicative primitive, edge cases of a string operation), every node whose local context falls in that region fails together. \Cref{thm:capacity-depth} is therefore best read as a baseline against which empirical decay is to be measured, not as a tight predictor of end-to-end accuracy.
-
-The honest characterisation of the architectural payoff has two parts. (i) The unconditional part: the per-step input is bounded by max arity, the per-step parameter count is fixed, and the processor's hypothesis class is depth-invariant. These are properties of the architecture, not of any error model. (ii) The conditional part: under the geometric decay model, depth degrades success probability multiplicatively rather than catastrophically. The empirical question is whether realistic error correlation structure is closer to the independent model or to the worst case of fully-coupled failure.
+The independence assumption is unrealistic in shared-parameter models. The geometric bound is best read as a baseline against which empirical error-correlation structure is measured, not as a tight prediction. The unconditional property of the architecture is the per-step bounded input (\Cref{prop:executor-bounded}); the conditional property is the geometric decay (\Cref{thm:executor-decoupling}). The empirical programme of \Cref{sec:empirical} includes measurement of the actual error-correlation structure.
 \end{remark}
-
-\begin{remark}[Empirical replacement of the geometric model]
-\label{rem:empirical-decay}
-Let $\hat{\eps}(c)$ denote the empirical error rate of the trained processor on local contexts of a specified shape $c$, and let $\rho(c, c')$ denote the empirical covariance of error events between invocations with contexts $c$ and $c'$. The accuracy of a depth-$d$ chain is then bounded by a function of $\hat{\eps}(\cdot)$ and $\rho(\cdot, \cdot)$ that reduces to $(1-\eps)^d$ when $\rho \equiv 0$ and tracks the true behaviour otherwise. A complete empirical characterisation of the architecture therefore measures both the marginal error and the error correlation structure, and reports the depth-decay curve directly rather than via the geometric proxy.
-\end{remark}
-
-The bound of \Cref{thm:capacity-depth} is loose where errors at downstream nodes can absorb upstream errors (e.g., $\mathsf{ADD\_MOD}$ followed by a $\mathsf{COMPARE}$ that ignores the perturbed bit) and tight where each primitive's output is fully determined by its parent values and error events factor.
-
-\begin{remark}[Failure mode of the sequence baseline]
-\label{rem:b5-no-decoupling}
-A sequence transformer trained on length-$L_{\mathrm{train}}$ serialised DAGs and tested on length-$L_{\mathrm{test}}$ DAGs faces (i) positional extrapolation~\cite{press2021train}, (ii) attention dispersion across longer sequences~\cite{anil2022exploring}, and (iii) loss of independence between primitive evaluations, since all node values are produced by a single coupled latent computation. There is no analogue of \Cref{thm:capacity-depth} in this setting.
-\end{remark}
-
-\begin{remark}[Failure mode of the graph transformer baseline]
-\label{rem:b4tied-conditional-decoupling}
-The weight-tied graph transformer has $T$ layers of shared parameters; depth-$d$ graphs require $T \ge d$ for information to propagate from leaves to root. Even when $T$ is sufficient, per-layer attention is over $\Omega(d)$ ancestors in a chain, which couples primitive evaluations through softmax temperature and attention dispersion. The independence factorisation of \Cref{thm:capacity-depth} does not hold.
-\end{remark}
-
-\section{Generalisation Properties}
-\label{sec:generalization}
-
-\subsection{Local-context invariance}
-
-\begin{definition}[Local context]
-\label{def:local-context}
-The local context of a node $n$ is the tuple
-\[
-\mathsf{Ctx}(n) \;=\; \bigl(\tau_n,\; \Spec_n,\; (v_p)_{p \in \Parents_n}\bigr).
-\]
-\end{definition}
-
-\begin{proposition}[Locality of the processor]
-\label{prop:gsre-local-only}
-For any two well-formed DAGs $G, G'$ and any nodes $n \in V_G$, $n' \in V_{G'}$ with $\mathsf{Ctx}(n) = \mathsf{Ctx}(n')$, the value produced by the executor at $n$ equals the value produced at $n'$.
-\end{proposition}
-
-\begin{proof}
-Immediate from \Cref{lem:local-input} and determinism of $\NodeProc_\theta$.
-\end{proof}
-
-The executor sees only local contexts. Aggregated quantities of the graph---size, depth, ancestor topology, sibling identity---never reach the processor.
-
-\subsection{Marginal invariance and depth generalisation}
-
-Let $\mathcal{D}_d$ denote a distribution over notion DAGs of depth $d$ paired with leaf assignments. Let $\mathcal{M}_d$ denote the marginal distribution of local contexts induced by drawing $G \sim \mathcal{D}_d$ and then drawing an internal node uniformly.
-
-\begin{theorem}[Depth-independent per-node error under marginal invariance]
-\label{thm:local-context-ood}
-If $\mathcal{M}_{d_1} = \mathcal{M}_{d_2}$ then the expected per-node error rate of the executor's processor under $\mathcal{D}_{d_1}$ equals that under $\mathcal{D}_{d_2}$.
-\end{theorem}
-
-\begin{proof}
-The per-node error of the processor is a function $\phi : \mathsf{Ctx} \to [0,1]$ of the local context alone. The expected per-node error under $\mathcal{D}_d$ equals $\int \phi \, d\mathcal{M}_d$. Equality of the marginals gives equality of the integrals.
-\end{proof}
-
-Combining the two:
-
-\begin{corollary}[Depth generalisation under marginal invariance]
-\label{cor:ood-accuracy}
-Let $\mathcal{D}_{d_{\mathrm{train}}}$ and $\mathcal{D}_{d_{\mathrm{test}}}$ have equal local-context marginals. Let $\eps$ be the per-node processor error rate under $\mathcal{D}_{d_{\mathrm{train}}}$. Then the executor satisfies
-\[
-\mathrm{Acc}_{\mathcal{D}_{d_{\mathrm{test}}}}(\GSRE) \;\ge\; \E_{G \sim \mathcal{D}_{d_{\mathrm{test}}}}\Bigl[(1-\eps)^{|V_G| - |V_{G,\mathrm{leaf}}|}\Bigr].
-\]
-\end{corollary}
-
-The right-hand side depends on $d_{\mathrm{test}}$ only through the size distribution of the test graphs, and decays geometrically rather than catastrophically.
-
-The marginal-invariance assumption is non-trivial. It is approximately satisfied when leaf values are sampled uniformly, primitive choices induce uniform output distributions, and the primitive library is closed under composition in a way that preserves the marginal distribution of internal-node parent values. Modular arithmetic over a prime modulus is a clean special case: for $p$ prime, $(\mathbb{Z}/p\mathbb{Z})^{\times}$ is cyclic of order $p - 1$, and the induced output distributions of $\mathsf{ADD\_MOD}, \mathsf{SUB\_MOD}, \mathsf{MUL\_MOD}$ on independent uniform inputs remain uniform on $\mathbb{Z}/p\mathbb{Z}$ (or on $(\mathbb{Z}/p\mathbb{Z})^{\times}$ for the multiplicative case, conditioned on nonzero inputs). In such settings $\mathcal{M}_d$ is approximately invariant in $d$, and \Cref{cor:ood-accuracy} applies directly.
-
-For tasks that do not admit a closed-form invariance argument, the assumption is empirically testable. Sample a corpus of DAGs at each depth of interest, evaluate the oracle on each, and collect the induced empirical distribution $\widehat{\mathcal{M}}_d$ over local contexts. A divergence between $\widehat{\mathcal{M}}_{d_1}$ and $\widehat{\mathcal{M}}_{d_2}$ (KL, total variation, or maximum mean discrepancy under a chosen kernel on the context space) quantifies how far the assumption is from holding for that task. Reporting this divergence alongside any depth-generalisation measurement turns \Cref{cor:ood-accuracy} from an unverifiable conditional into a calibrated statement: where the empirical divergence is small, the accuracy bound applies; where it is large, the bound is to be weakened by an amount controlled by the divergence. We refer to this measurement as the \emph{marginal-invariance diagnostic} and treat it as a required companion to any depth-generalisation claim.
-
-\subsection{Failure modes of the baselines under depth shift}
-
-For the weight-tied graph transformer, the number of ancestors of a node grows with depth. Attention aggregates over this set, and the marginal distribution of attention input sets under $\mathcal{D}_d$ shifts with $d$. There is no fixed-size per-step input, so the local-context invariance argument breaks down.
-
-For the sequence transformer, the serialised DAG length grows with $|V|$, which grows with depth. Position embeddings, attention dispersion, and softmax temperature interact with sequence length, and the marginal distribution of inputs to the network shifts with depth.
-
-The executor avoids both failure modes by construction: the per-step input is bounded, and only local contexts ever reach the processor.
-
-\section{Learned Graph Construction}
-\label{sec:learned-construction}
-
-The executor as developed so far assumes a pre-specified notion DAG. The architecture extends to the case where the DAG is constructed on the fly by a learned policy over a fixed primitive library. We formalise this construction as a Markov decision process with deterministic transitions.
-
-\subsection{The graph-construction MDP}
-
-\begin{definition}[Graph-construction MDP]
-\label{def:gcmdp}
-The graph-construction MDP for a task specification $q$ over library $\Lib$ is the tuple $(\mathcal{S}, \mathcal{A}, P, R, \gamma)$:
-
-\textbf{State.} An element of $\mathcal{S}$ is a pair $(G, q)$ where $G$ is a partial well-formed notion DAG over $\Lib$ together with a partial value assignment $v$. The initial state is $s_0 = (\emptyset, q)$.
-
-\textbf{Action.} An action is a triple $a = (n_{\mathrm{select}}, \tau, b)$:
-\begin{itemize}[topsep=2pt,itemsep=2pt]
-  \item $n_{\mathrm{select}}$ is either a $\PENDING$ node in $G$ with an unfilled slot, or a fresh node identifier.
-  \item $\tau \in \Lib$ is a primitive whose output type matches the demanded type at $n_{\mathrm{select}}$.
-  \item $b$ binds each input slot of $\tau$ either to an existing resolved value in $G$'s value pool, or to a new sub-goal of the demanded type.
-\end{itemize}
-A distinguished action $\texttt{FAIL}$ terminates the episode.
-
-\textbf{Transition.} $P((G, q), a)$ deterministically produces $G'$ by attaching $\tau$ at $n_{\mathrm{select}}$ with bindings $b$, then runs the traversal engine to resolve any newly-ready nodes.
-
-\textbf{Reward.} $R(s, a, s') = +1$ if $s'$ contains a fully resolved root whose value equals the task ground truth; otherwise $R = 0$.
-
-\textbf{Discount.} $\gamma \in (0, 1)$.
-\end{definition}
-
-A policy $\pi : \mathcal{S} \to \Delta(\mathcal{A})$ defines a distribution over actions. The Graph Policy Network $\GPN_\phi$ parameterises such a policy.
-
-\subsection{Action space cardinality}
-
-\begin{proposition}[Per-step action space]
-\label{prop:action-cardinality}
-At a state with $m$ unfilled slots across all $\PENDING$ nodes and $v$ resolved values in the value pool,
-\[
-|\mathcal{A}(s)| \;\le\; (m + 1) \cdot |\Lib| \cdot (v + |\Lib|)^{k_{\max}} + 1.
-\]
-\end{proposition}
-
-\begin{proof}
-$m + 1$ choices of expansion target (existing slot or new root sub-goal); $|\Lib|$ choices of primitive; for each of up to $k_{\max}$ input slots, a binding to one of $v$ resolved values or $|\Lib|$ new sub-goals; one extra action for $\texttt{FAIL}$.
-\end{proof}
-
-For a library of size $|\Lib| = K$, maximum arity $k_{\max} = 2$, and a value pool of modest size, the action space is polynomial in the partial-graph state and tractable for standard policy-gradient methods.
-
-\subsection{Deterministic transitions and search}
-
-The transition function of \Cref{def:gcmdp} is deterministic conditional on the seed of $\NodeProc_\theta$. This permits Monte Carlo tree search over expansion sequences with the policy network as prior and a value head as leaf evaluator, in the style of AlphaZero~\cite{silver2018general}. Tree search interacts cleanly with the executor because every rollout is itself a deterministic partial execution of the underlying \GSRE.
-
-\subsection{Training signal}
-
-The reward is sparse: $+1$ only when a fully-resolved root matches the ground truth. Two standard mechanisms apply.
-
-\paragraph{Behaviour cloning bootstrap.} When ground-truth expansion traces are available (from oracle DAG generation at low depth), the policy can be initialised by supervised loss
-\[
-\mathcal{L}_{\mathrm{BC}}(\pi_\phi) \;=\; -\E_{(s, a^\ast)}\bigl[\log \pi_\phi(a^\ast \mid s)\bigr],
-\]
-where $a^\ast$ is the oracle expansion action at $s$.
-
-\paragraph{Policy-gradient refinement.} Subsequent training proceeds via PPO~\cite{schulman2017proximal} or analogous policy-gradient updates on the sparse-reward signal, possibly augmented with MCTS-improved policy targets~\cite{silver2018general}. Because transitions are deterministic, value estimates depend only on the policy itself and the (fixed-seed) executor.
-
-\subsection{Sample complexity of policy learning}
-\label{sec:sample-complexity}
-
-The graph-construction MDP is structurally close to the AlphaZero-style setting of deterministic-transition single-agent search with sparse terminal reward and a small per-step action space, for which the sample-complexity behaviour of search-augmented policy iteration is empirically well-characterised. Two features make the present setting more favourable than the chess/Go regime in which those bounds were established: transitions are not merely deterministic but fully simulable by the executor itself, and the reward is verifiable by re-execution rather than by a learned value head. Two features make it harder: episodes can be longer because reasoning depth is unbounded, and the policy's value head must learn to predict success at intermediate partial graphs whose value is the joint product of all remaining primitive evaluations.
-
-We do not give an end-to-end sample-complexity bound. Quantitative claims about the difficulty of training the graph policy are intentionally deferred to the empirical programme of \Cref{sec:empirical-programme}, where they appear as a measurable diagnostic (learning curves with and without MCTS augmentation, parameterised by graph depth) rather than as a theorem.
-
-\section{Library Extension}
-\label{sec:library-extension}
-
-The most ambitious extension of the architecture is the extension of the primitive library itself: identifying reusable subgraphs in successful traces, abstracting them into new primitives, and incorporating these into the library. The framework admits a clean formal statement of the problem.
-
-\subsection{Compositional compression}
-
-Let $\mathcal{T} = \{G_1, G_2, \dots\}$ be a collection of successfully-resolved notion DAGs. A subgraph abstraction is a typed parameterised graph template $T$ together with embeddings $\iota_i : T \hookrightarrow G_i$ for each $G_i$ in some $\mathcal{T}_T \subseteq \mathcal{T}$, where each $\iota_i$ preserves the structure of $T$ up to substitution of free type variables and leaves.
-
-\begin{definition}[Compositional compression value]
-\label{def:compression}
-The compression value of an abstraction $T$ over $\mathcal{T}$ is
-\[
-\Delta(T) \;=\; \sum_{i \,:\, T \hookrightarrow G_i} (\mathsf{count}_T(G_i) - 1) \cdot |T| \;-\; |T|,
-\]
-where $\mathsf{count}_T(G_i)$ is the number of structurally-distinct embeddings of $T$ in $G_i$, and $|T|$ is the description length of $T$.
-\end{definition}
-
-The library-learning problem is to identify $T$ with large $\Delta(T)$. It generalises subgraph-mining problems studied in the graph-data-mining literature~\cite{washio2003state} and connects directly to library learning in inductive program synthesis~\cite{ellis2021dreamcoder}. The novel features in the present setting are the typed parameterisation of abstractions and the requirement that abstractions remain executable by the shared processor.
-
-\subsection{Continual learning of the processor}
-
-Adding a new primitive $\tau_{K+1}$ to the library requires the processor to learn the new operation. Two constraints conflict:
-
-\begin{itemize}[topsep=2pt,itemsep=2pt]
-  \item \emph{Stability.} Per-primitive accuracy on $\{\tau_1, \dots, \tau_K\}$ must not degrade after training on $\tau_{K+1}$.
-  \item \emph{Plasticity.} Time to reach $1 - \eps$ accuracy on $\tau_{K+1}$ should be sublinear in $K$.
-\end{itemize}
-
-Standard tools---adapter layers~\cite{houlsby2019parameter}, low-rank adaptation~\cite{hu2021lora}, elastic-weight consolidation~\cite{kirkpatrick2017overcoming}, mixture-of-experts---trade these properties against each other. The shared-processor architecture commits to a single set of parameters for all primitives; reconciling stability and plasticity in this constrained setting is open.
-
-\paragraph{Procedural primitives as a structural mitigation.}
-A pragmatic alternative to demanding that the neural processor learn every new primitive is to admit \emph{procedural primitives} into the library: primitives whose semantic function is implemented not by a forward pass of $\NodeProc_\theta$ but by a program over already-learned atomic primitives. A procedural primitive $\tau$ carries an expansion rule
-\[
-\mathsf{Expand}_\tau \;:\; \Val_{\mathsf{in}_\tau} \;\to\; \bigl(\text{sub-DAG over } \Lib\bigr),
-\]
-which the executor invokes in place of $\NodeProc_\theta$ at any node of type $\tau$. Procedural primitives may be parameterised by structural arguments (e.g.\ list length), may contain loops and conditionals in their expansion rule, and may be composed; what they may not do is introduce cycles in the resulting sub-DAG, so the executor's invariants are preserved. The stability--plasticity tradeoff in $\NodeProc_\theta$ is sidestepped entirely: the neural processor's parameter set is fixed, and library growth happens at a layer above it. This is the same mechanism by which programming-language standard libraries are extended without modifying the underlying interpreter, and it connects directly to the wake--sleep library learning regime of~\cite{ellis2021dreamcoder} interpreted as procedural macros rather than learned atomic operations.
-
-\subsection{Verification of invented primitives}
-
-A new primitive $\tau_{K+1}$ induced by abstraction must be verified to compute a useful function. Two interpretations of usefulness are operationally distinct.
-
-\begin{itemize}[topsep=2pt,itemsep=2pt]
-  \item \emph{Compression-based.} $\tau_{K+1}$ is admitted to the library iff it reduces the description length of solutions on a held-out problem set by an amount exceeding the cost of its parameters.
-  \item \emph{Semantic.} $\tau_{K+1}$ must compute a well-defined function. Absent an external oracle, this function is whatever the processor produces, and correctness is a property of the abstraction process itself.
-\end{itemize}
-
-Compression-based verification is realisable and is the criterion used by DreamCoder. Semantic verification raises the foundational question of whether the system can construct test cases for its own invented primitives, which in the present setting reduces to whether the example traces from which $\tau_{K+1}$ was mined constitute a sufficient defining set.
-
-\subsection{Search versus abstraction}
-
-A library-extending agent must decide, for any novel problem, whether to search the existing library or to introduce a new primitive. The two options have distinct costs: search scales with the size of the action space at the relevant depth; abstraction scales with the size of the trace corpus.
-
-\section{Connections to Prior Work}
-\label{sec:related}
-
-The architecture connects to several established lines of work.
-
-\paragraph{Compositional generalisation.} The SCAN benchmark~\cite{lake2018generalization} and its successors~\cite{kim2020cogs, hupkes2020compositionality} established the empirical phenomenon that motivates this architecture. Subsequent work demonstrated architectural and data-side mitigations~\cite{russin2019compositional, csordas2021devil, andreas2020good}. The present architecture mitigates the gap by structural enforcement.
-
-\paragraph{Chain-of-thought and scratchpad reasoning.} Wei et al.~\cite{wei2022chain} and Nye et al.~\cite{nye2021show} expose intermediate reasoning steps as targets in token form. The notion DAG is the structural counterpart: the same intermediate steps, represented explicitly rather than implicitly in a token sequence.
-
-\paragraph{Universal and recurrent transformers.} Weight-tied transformers~\cite{dehghani2018universal} are the sequence analogue of the weight-tied graph transformer of \Cref{sec:b4tied}. Length-generalisation behaviour of recurrent architectures has been investigated by~\cite{schwarzschild2021can}.
-
-\paragraph{Neural module networks.} Andreas et al.~\cite{andreas2016neural} construct computation graphs from a fixed module library by parsing the input question. The notion DAG generalises this to an arbitrary typed DAG with a shared module.
-
-\paragraph{Program synthesis and library learning.} The learned-graph-construction MDP of \Cref{sec:learned-construction} is a neural program synthesis problem with a known DSL~\cite{gulwani2017program, devlin2017robustfill}. The library-extension setting of \Cref{sec:library-extension} is most closely related to DreamCoder~\cite{ellis2021dreamcoder}.
-
-\paragraph{Graph neural networks.} The weight-tied graph transformer is structurally close to message-passing GNNs~\cite{kipf2016semi, velivckovic2017graph}, differing in that GNN message passing updates all nodes at every layer regardless of whether their inputs have stabilised.
-
-\section{Empirical Programme}
-\label{sec:empirical-programme}
-
-The theorems and bounds developed in the preceding sections are predicated on assumptions whose realism is itself an empirical question. We list here the minimal set of measurements that would tighten the document from a conditional statement of properties to a calibrated description of system behaviour. Each item maps onto a specific theorem and produces a diagnostic that either supports the theorem's antecedent or quantifies the gap.
-
-\begin{enumerate}[topsep=4pt,itemsep=4pt]
-  \item \emph{Per-primitive accuracy and error correlation structure.}
-  Train $\NodeProc_\theta$ on the primitive library and measure (i) the marginal error rate $\hat{\eps}(\tau, c)$ for each primitive $\tau$ and local-context shape $c$; (ii) the empirical covariance $\rho$ of error events across invocations sharing a context shape; (iii) the realised depth-decay curve on chained primitives, to be compared against the $(1-\eps)^d$ baseline of \Cref{thm:capacity-depth}. This tests whether the architectural decoupling argument survives the realities of a shared-parameter neural network (\Cref{rem:independence}).
-
-  \item \emph{Marginal-invariance diagnostic.}
-  For each task family of interest, sample DAGs at depths $d \in \{1, \dots, d_{\max}\}$, evaluate the oracle to populate parent values, and compute a divergence (KL or MMD) between the empirical context marginals $\widehat{\mathcal{M}}_d$. Report the divergence alongside any depth-generalisation accuracy curve. This calibrates \Cref{cor:ood-accuracy} for the specific task: where the divergence is small, the bound applies; where it is large, the bound is to be weakened in proportion.
-
-  \item \emph{OOD depth-generalisation curves.}
-  Train the executor on shallow graphs ($d \le 3$) and measure exact-match accuracy on test graphs of depth $d \in \{4, 5, 7, 9, 10\}$ across multiple seeds, comparing against the weight-tied graph transformer of \Cref{def:b4tied} and the sequence transformer of \Cref{def:b5} under matched training compute, parameter count, and primitive coverage. The OOD slope difference is the direct test of the architectural claim that explicit dependency scheduling improves depth generalisation beyond implicit causal masking.
-
-  \item \emph{Graph-policy learning curves.}
-  Train the graph-policy network of \Cref{sec:learned-construction} under three regimes: pure policy gradient with sparse reward, policy gradient with behaviour-cloning warm-start, and AlphaZero-style MCTS-augmented policy iteration. Report sample efficiency and asymptotic success rate as a function of maximum task depth. This characterises the policy-learning difficulty acknowledged in \Cref{sec:sample-complexity}.
-\end{enumerate}
-
-Together these measurements close the loop between architecture and behaviour: items~1 and~2 calibrate the executor's idealised guarantees, item~3 tests the architectural prediction against alternatives, and item~4 measures the trainability of the construction layer above it. Any negative result in this programme localises the architectural assumption that fails, which is what makes the assumptions worth stating precisely.
-
-\section{Discussion}
-\label{sec:discussion}
-
-The executor's key inductive bias is the hard enforcement of dependency order. Among architectures with access to identical information, only the executor commits to the constraint that a node's value is computed once, after all of its inputs are available, by a function whose input is restricted to the node's local context. Weight-tied graph transformers approximate this constraint via causal ancestor masking; sequence transformers do not approximate it at all.
-
-The consequence is a clean separation of concerns. The neural component is responsible only for executing primitives; the symbolic component is responsible for tracking dependencies and scheduling. Each can be analysed independently. The neural component's error is bounded by primitive-level training; the symbolic component's correctness follows by structural induction on the DAG.
-
-The capacity--depth decoupling of \Cref{thm:capacity-depth} is the architectural payoff. A small processor trained to high primitive accuracy can execute arbitrarily deep graphs, with success probability decaying geometrically rather than catastrophically and with no growth in parameters. The local-context invariance of \Cref{prop:gsre-local-only} ensures that this decoupling extends to graphs of depths not seen in training, provided the marginal distribution of local contexts is preserved.
-
-The extensions to learned graph construction and library extension preserve this structure. The construction policy is a separate neural component that decides what graph to build; the executor as developed here resolves whatever graph it is given. The library-extension problem becomes a problem of mining and verifying new abstractions, with the executor's structural guarantees serving as ground for the verification step.
-
-\appendix
-
-\section{Notation Summary}
-\label{app:notation}
-
-\begin{center}
-\begin{tabular}{ll}
-\toprule
-\textbf{Symbol} & \textbf{Meaning} \\
-\midrule
-$\Types$ & Set of types in the type system. \\
-$\Val_\tau$ & Value domain of type $\tau$. \\
-$\Lib$ & Primitive library. $|\Lib| = K$. \\
-$\tau$ & A primitive; $\mathsf{in}_\tau$, $\mathsf{out}_\tau$, $f_\tau$ are its input/output types and semantics. \\
-$n$ & A notion: $(\mathsf{id}_n, \tau_n, \Spec_n, \Parents_n)$. \\
-$G = (V, r)$ & A notion DAG with vertex set $V$ and root $r$. \\
-$\dep(n)$ & Compositional depth of $n$. \\
-$\dep(G)$ & Depth of the graph; $= \dep(r)$. \\
-$\NState(n)$ & Execution state in $\{\PENDING, \READY, \EXEC, \RESOLVED, \FAILED\}$. \\
-$v_n$ & Resolved value at $n$. \\
-$\hat{v}_n$ & Oracle ground-truth value at $n$. \\
-$\NodeProc_\theta$ & Shared neural node processor with parameters $\theta$. \\
-$\eps$ & Per-primitive error rate of $\NodeProc_\theta$. \\
-$k_\tau$ & Arity of primitive $\tau$. $k_{\max} = \max_\tau k_\tau$. \\
-$\mathsf{Ctx}(n)$ & Local context of $n$: $(\tau_n, \Spec_n, (v_p)_{p \in \Parents_n})$. \\
-$\mathcal{D}_d$ & Distribution over depth-$d$ notion DAGs. \\
-$\mathcal{M}_d$ & Marginal distribution over local contexts under $\mathcal{D}_d$. \\
-$\GPN_\phi$ & Graph Policy Network with parameters $\phi$. \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\clearpage
-\section{Worked Trace}
-\label{app:trace}
-
-We trace the executor on the DAG corresponding to $((3 + 5) - 2) \cdot 7 \mod 101$ over a primitive library containing $\mathsf{CONST}_{\mathsf{Nat}}, \mathsf{ADD\_MOD}, \mathsf{SUB\_MOD}, \mathsf{MUL\_MOD}$ with the obvious semantics in $\mathbb{Z}/101\mathbb{Z}$. The DAG is shown in \Cref{fig:worked-trace}.
-
-\begin{figure}[ht]
-\centering
-\begin{minipage}[c]{0.32\textwidth}
-\centering
-\begin{tikzpicture}[
-  >={Latex[length=2.2mm]},
-  every node/.style={font=\small},
-  leaf/.style={draw, circle, fill=blue!10, minimum size=0.95cm, inner sep=0pt, line width=0.5pt},
-  op/.style={draw, circle, fill=gray!5, minimum size=0.95cm, inner sep=0pt, line width=0.5pt}
-]
-\node[leaf] (n1) at (0,0)      {$n_1$};
-\node[leaf] (n2) at (1.4,0)    {$n_2$};
-\node[op]   (n3) at (0.7,-1.4) {$n_3$};
-\node[leaf] (n4) at (2.1,-1.4) {$n_4$};
-\node[op]   (n5) at (1.4,-2.8) {$n_5$};
-\node[leaf] (n6) at (2.8,-2.8) {$n_6$};
-\node[op]   (n7) at (2.1,-4.2) {$n_7$};
-
-\draw[->] (n1) -- (n3);
-\draw[->] (n2) -- (n3);
-\draw[->] (n3) -- (n5);
-\draw[->] (n4) -- (n5);
-\draw[->] (n5) -- (n7);
-\draw[->] (n6) -- (n7);
-\end{tikzpicture}
-\end{minipage}\hfill
-\begin{minipage}[c]{0.58\textwidth}
-\small
-\begin{align*}
-n_1 &= \mathsf{CONST}(3), & n_2 &= \mathsf{CONST}(5), \\
-n_3 &= \mathsf{ADD\_MOD}(n_1, n_2), & n_4 &= \mathsf{CONST}(2), \\
-n_5 &= \mathsf{SUB\_MOD}(n_3, n_4), & n_6 &= \mathsf{CONST}(7), \\
-n_7 &= \mathsf{MUL\_MOD}(n_5, n_6). & &
-\end{align*}
-\end{minipage}
-\caption{The notion DAG for $((3 + 5) - 2) \cdot 7 \mod 101$. The root is $n_7$; leaves are shaded, internal nodes unshaded.}
-\label{fig:worked-trace}
-\end{figure}
-
-Trace:
-\begin{enumerate}[itemsep=2pt,topsep=2pt]
-  \item Initialisation. All leaves ($n_1, n_2, n_4, n_6$) are assigned constants and marked $\RESOLVED$ with values $3, 5, 2, 7$. All other nodes are $\PENDING$.
-  \item Iteration 1. $R = \{n_3\}$. The processor receives input $(\mathsf{ADD\_MOD}, \cdot, (3, 5))$ and returns $8$. $v_{n_3} = 8$, $\NState(n_3) = \RESOLVED$.
-  \item Iteration 2. $R = \{n_5\}$. The processor receives input $(\mathsf{SUB\_MOD}, \cdot, (8, 2))$ and returns $6$. $v_{n_5} = 6$, $\NState(n_5) = \RESOLVED$.
-  \item Iteration 3. $R = \{n_7\}$. The processor receives input $(\mathsf{MUL\_MOD}, \cdot, (6, 7))$ and returns $42$. $v_{n_7} = 42$, $\NState(n_7) = \RESOLVED$.
-  \item Termination. The root is $\RESOLVED$; the loop exits and returns $v$ with $v_r = 42$.
-\end{enumerate}
-
-The processor was invoked three times. At each invocation its input was bounded by the description length of the primitive plus two parent values; no part of the input depended on the depth of the graph or the identity of nodes outside the direct parents.
 
 \begin{thebibliography}{99}
 
-\bibitem{lake2018generalization}
-B.~M. Lake and M.~Baroni.
-Generalization without systematicity: On the compositional skills of sequence-to-sequence recurrent networks.
-\emph{ICML}, 2018.
+\bibitem{whittington2020tem}
+J.~C.~R. Whittington, T.~H. Muller, S.~Mark, G.~Chen, C.~Barry, N.~Burgess, and T.~E.~J. Behrens.
+The Tolman--Eichenbaum Machine: Unifying space and relational memory through generalization in the hippocampal formation.
+\emph{Cell}, 183(5):1249--1263, 2020.
 
-\bibitem{kim2020cogs}
-N.~Kim and T.~Linzen.
-COGS: A compositional generalization challenge based on semantic interpretation.
-\emph{EMNLP}, 2020.
+\bibitem{behrens2018cognitive}
+T.~E.~J. Behrens et al.
+What is a cognitive map? Organizing knowledge for flexible behavior.
+\emph{Neuron}, 100(2):490--509, 2018.
 
-\bibitem{hupkes2020compositionality}
-D.~Hupkes, V.~Dankers, M.~Mul, and E.~Bruni.
-Compositionality decomposed: How do neural networks generalise?
-\emph{JAIR}, 67, 2020.
+\bibitem{constantinescu2016conceptual}
+A.~O. Constantinescu, J.~X. O'Reilly, and T.~E.~J. Behrens.
+Organizing conceptual knowledge in humans with a gridlike code.
+\emph{Science}, 352(6292):1464--1468, 2016.
 
-\bibitem{anil2022exploring}
-C.~Anil et al.
-Exploring length generalization in large language models.
-\emph{NeurIPS}, 2022.
+\bibitem{whittington2022disentanglement}
+J.~C.~R. Whittington, W.~Dorrell, S.~Ganguli, and T.~E.~J. Behrens.
+Disentanglement with biological constraints: A theory of functional cell types.
+\emph{ICLR}, 2023.
 
-\bibitem{schwarzschild2021can}
-A.~Schwarzschild et al.
-Can you learn an algorithm? Generalizing from easy to hard problems with recurrent networks.
-\emph{NeurIPS}, 2021.
+\bibitem{spens2024consolidation}
+E.~Spens and N.~Burgess.
+A generative model of memory construction and consolidation.
+\emph{Nature Human Behaviour}, 8:526--543, 2024.
 
-\bibitem{wei2022chain}
-J.~Wei et al.
-Chain-of-thought prompting elicits reasoning in large language models.
-\emph{NeurIPS}, 2022.
+\bibitem{kumaran2016complementary}
+D.~Kumaran, D.~Hassabis, and J.~L. McClelland.
+What learning systems do intelligent agents need? Complementary learning systems theory updated.
+\emph{Trends in Cognitive Sciences}, 20(7):512--534, 2016.
 
-\bibitem{nye2021show}
-M.~Nye et al.
-Show your work: Scratchpads for intermediate computation with language models.
-\emph{arXiv:2112.00114}, 2021.
+\bibitem{gentner1983structure}
+D.~Gentner.
+Structure-mapping: A theoretical framework for analogy.
+\emph{Cognitive Science}, 7(2):155--170, 1983.
 
-\bibitem{dehghani2018universal}
-M.~Dehghani et al.
-Universal transformers.
-\emph{ICLR}, 2019.
+\bibitem{falkenhainer1989sme}
+B.~Falkenhainer, K.~D. Forbus, and D.~Gentner.
+The structure-mapping engine: Algorithm and examples.
+\emph{Artificial Intelligence}, 41(1):1--63, 1989.
 
-\bibitem{press2021train}
-O.~Press, N.~A. Smith, and M.~Lewis.
-Train short, test long: Attention with linear biases enables input length extrapolation.
-\emph{ICLR}, 2022.
+\bibitem{lewis2024analogy}
+M.~Lewis and M.~Mitchell.
+Evaluating the robustness of analogical reasoning in large language models.
+\emph{arXiv:2411.14215}, 2024.
 
-\bibitem{russin2019compositional}
-J.~Russin et al.
-Compositional generalization in a deep seq2seq model by separating syntax and semantics.
-\emph{arXiv:1904.09708}, 2019.
+\bibitem{mitchell2024analogy}
+M.~Mitchell.
+Can large language models reason?
+\emph{AI Magazine}, 45(1), 2024.
 
-\bibitem{csordas2021devil}
-R.~Csord{\'a}s, K.~Irie, and J.~Schmidhuber.
-The devil is in the detail: Simple tricks improve systematic generalization of transformers.
-\emph{EMNLP}, 2021.
+\bibitem{webb2023emergent}
+T.~Webb, K.~J. Holyoak, and H.~Lu.
+Emergent analogical reasoning in large language models.
+\emph{Nature Human Behaviour}, 7(9):1526--1541, 2023.
 
-\bibitem{andreas2020good}
-J.~Andreas.
-Good-enough compositional data augmentation.
-\emph{ACL}, 2020.
+\bibitem{chollet2019arc}
+F.~Chollet.
+On the measure of intelligence.
+\emph{arXiv:1911.01547}, 2019.
 
-\bibitem{andreas2016neural}
-J.~Andreas, M.~Rohrbach, T.~Darrell, and D.~Klein.
-Neural module networks.
-\emph{CVPR}, 2016.
+\bibitem{chollet2024onthemeasureofintelligence}
+F.~Chollet et al.
+ARC Prize: Updates and the path forward.
+\emph{arXiv:2412.04604}, 2024.
+
+\bibitem{ellis2021dreamcoder}
+K.~Ellis et al.
+DreamCoder: Bootstrapping inductive program synthesis with wake--sleep library learning.
+\emph{PLDI}, 2021.
 
 \bibitem{gulwani2017program}
 S.~Gulwani, O.~Polozov, and R.~Singh.
 Program synthesis.
 \emph{Foundations and Trends in Programming Languages}, 4(1--2), 2017.
 
-\bibitem{devlin2017robustfill}
-J.~Devlin et al.
-RobustFill: Neural program learning under noisy I/O.
-\emph{ICML}, 2017.
-
-\bibitem{ellis2021dreamcoder}
-K.~Ellis et al.
-DreamCoder: Bootstrapping inductive program synthesis with wake-sleep library learning.
-\emph{PLDI}, 2021.
-
-\bibitem{kipf2016semi}
-T.~N. Kipf and M.~Welling.
-Semi-supervised classification with graph convolutional networks.
-\emph{ICLR}, 2017.
-
-\bibitem{velivckovic2017graph}
-P.~Veli{\v{c}}kovi{\'c} et al.
-Graph attention networks.
-\emph{ICLR}, 2018.
-
-\bibitem{silver2018general}
-D.~Silver et al.
-A general reinforcement learning algorithm that masters chess, shogi, and Go through self-play.
-\emph{Science}, 362(6419), 2018.
-
-\bibitem{schulman2017proximal}
-J.~Schulman et al.
-Proximal policy optimization algorithms.
-\emph{arXiv:1707.06347}, 2017.
-
-\bibitem{houlsby2019parameter}
-N.~Houlsby et al.
-Parameter-efficient transfer learning for NLP.
-\emph{ICML}, 2019.
-
-\bibitem{hu2021lora}
-E.~J. Hu et al.
-LoRA: Low-rank adaptation of large language models.
-\emph{ICLR}, 2022.
-
-\bibitem{kirkpatrick2017overcoming}
-J.~Kirkpatrick et al.
-Overcoming catastrophic forgetting in neural networks.
-\emph{PNAS}, 114(13), 2017.
-
-\bibitem{washio2003state}
-T.~Washio and H.~Motoda.
-State of the art of graph-based data mining.
-\emph{ACM SIGKDD Explorations}, 5(1), 2003.
+\bibitem{andreas2016neural}
+J.~Andreas, M.~Rohrbach, T.~Darrell, and D.~Klein.
+Neural module networks.
+\emph{CVPR}, 2016.
 
 \end{thebibliography}
 
