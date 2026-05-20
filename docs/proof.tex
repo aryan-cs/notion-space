@@ -34,9 +34,8 @@
 \newtheorem{remark}[theorem]{Remark}
 
 % ---- Macros ----
-\newcommand{\Notion}{\mathcal{N}}
 \newcommand{\Lib}{\mathcal{L}}
-\newcommand{\Schemas}{\mathcal{S}}
+\newcommand{\Notions}{\mathcal{N}}
 \newcommand{\Types}{\mathcal{T}}
 \newcommand{\Val}{\mathcal{V}}
 \newcommand{\Spec}{\mathsf{spec}}
@@ -46,13 +45,10 @@
 \newcommand{\dep}{\mathsf{depth}}
 \newcommand{\GSRE}{\textsc{Gsre}}
 \newcommand{\NBRS}{\textsc{Nbrs}}
-\newcommand{\SFRA}{\textsc{Sfra}}
-\newcommand{\GPN}{\textsc{Gpn}}
 \newcommand{\NodeProc}{\mathsf{NodeProc}}
 \newcommand{\Bind}{\mathsf{Bind}}
 \newcommand{\Inst}{\mathsf{Inst}}
 \newcommand{\Match}{\mathsf{Match}}
-\newcommand{\Sketch}{\mathsf{Sketch}}
 \newcommand{\PENDING}{\textsc{Pending}}
 \newcommand{\READY}{\textsc{Ready}}
 \newcommand{\EXEC}{\textsc{Executing}}
@@ -65,7 +61,7 @@
 \newcommand{\eps}{\varepsilon}
 
 % ---- Title ----
-\title{\bfseries Schema-Factored Reasoning\\[0.3em]
+\title{\bfseries The Notion-Based Reasoning System\\[0.3em]
 \large Cross-Domain Procedural Transfer via Structure--Content Decomposition}
 
 \author{Aryan Gupta\\[2pt]\href{mailto:aryan.cs.app@gmail.com}{\texttt{aryan.cs.app@gmail.com}}}
@@ -77,9 +73,9 @@
 \begin{abstract}
 \noindent Current large language models simulate multi-step reasoning by autoregressive token prediction over surface representations. This collapses on tasks requiring transfer of an abstract procedure across content domains: the same algorithm applied to letter-string puzzles in a novel alphabet, the same equilibrium argument applied across physics and economics, the same inductive proof pattern applied across number theory and graph theory. The failure has a structural diagnosis. A standard transformer does not factorise the relational scaffold of a problem from its specific content, and so has no representation that can be transferred independently of content.
 
-We propose the Schema-Factored Reasoning Architecture (\SFRA), motivated by the structure--content factorisation observed in the hippocampal--entorhinal cognitive map~\cite{whittington2020tem, behrens2018cognitive, constantinescu2016conceptual} and by the structure-mapping account of analogy~\cite{gentner1983structure, falkenhainer1989sme}. \SFRA\ maintains an explicit library of \emph{schemas}: parameterised relational templates over typed operations, induced from few examples, stored as content-independent abstractions, and applied to new problems via structure-mapping. An LLM serves as the content engine that parses problems and supplies values; a separate structural layer maintains the schema library and selects, binds, and instantiates schemas; the resulting concrete computation runs on a deterministic graph executor (the Graph-Structured Recurrent Executor of the Notion-Based Reasoning System, retained as substrate). Library growth is driven by a replay-style consolidation process that abstracts schemas from successful traces.
+We propose the Notion-Based Reasoning System (\NBRS), motivated by the structure--content factorisation observed in the hippocampal--entorhinal cognitive map~\cite{whittington2020tem, behrens2018cognitive, constantinescu2016conceptual} and by the structure-mapping account of analogy~\cite{gentner1983structure, falkenhainer1989sme}. \NBRS\ maintains an explicit library of \emph{notions}: parameterised relational templates over typed operations, induced from few examples, stored as content-independent abstractions, and applied to new problems via structure-mapping. An LLM serves as the content engine that parses problems and supplies values; a separate structural layer maintains the notion library and selects, binds, and instantiates notions; the resulting concrete computation runs on a deterministic graph executor (the Graph-Structured Recurrent Executor, retained as substrate). Library growth is driven by a replay-style consolidation process that abstracts notions from successful traces.
 
-The technical contributions of this document are: (i) formal definitions of schemas, structural binding, and analogical mapping over typed notion DAGs; (ii) the architectural specification of \SFRA\ as a five-component system (content layer, structure extractor, schema library, analogy engine, execution substrate) with the consolidation process that grows the library; (iii) execution guarantees for instantiated schemas inherited from the underlying executor (determinism, termination, soundness, depth-decoupling); (iv) a precise statement of the transfer property the architecture is designed to achieve, with the conditions under which it holds; (v) a falsifiable empirical programme targeting cross-domain analogical transfer benchmarks where contemporary LLMs systematically fail.
+The technical contributions of this document are: (i) formal definitions of notions, structural binding, and analogical mapping over typed operation DAGs; (ii) the architectural specification of \NBRS\ as a five-component system (content layer, structure extractor, notion library, analogy engine, execution substrate) with the consolidation process that grows the library; (iii) execution guarantees for instantiated notions inherited from the underlying executor (determinism, termination, soundness, depth-decoupling); (iv) a precise statement of the transfer property the architecture is designed to achieve, with the conditions under which it holds; (v) a falsifiable empirical programme centred on two cross-domain transfer demonstrations: ARC-AGI subset performance and cross-discipline scientific-equilibrium analogy.
 \end{abstract}
 
 \section{Introduction}
@@ -89,7 +85,7 @@ The technical contributions of this document are: (i) formal definitions of sche
 
 The capability that most distinguishes human reasoning from contemporary large language models is not depth, breadth, or factual coverage. It is \emph{transfer}: the ability to recognise that a problem in a new domain has the same structure as a problem already solved in some other domain, and to apply the previously-learned procedure to the new content without further training. A child who has learned long-division on integers can apply the same algorithm to polynomials with minimal additional instruction. A physicist who recognises that supply--demand equilibrium has the structure of mechanical equilibrium can transfer intuitions about damped oscillations to market dynamics. A reader who absorbs the moral of a parable can identify the same structural pattern in a story with different characters, settings, and surface content.
 
-Recent stress tests of analogical reasoning in frontier LLMs document the gap precisely. Lewis and Mitchell~\cite{lewis2024analogy} and Webb et al.~\cite{webb2023emergent} show that performance on letter-string analogies, Raven's Progressive Matrices, and digit-pattern problems collapses when test stimuli are constructed to be unlikely in training data: GPT-class models fail on novel alphabets where humans, including children, generalise robustly. The failure mode is consistent across studies: LLMs match on surface features, not on relational structure. Where the abstract pattern requires a content-independent representation, the model has nothing to fall back on.
+Recent stress tests of analogical reasoning in frontier LLMs document the gap precisely. Lewis and Mitchell~\cite{lewis2024analogy} and Webb et al.~\cite{webb2023emergent} show that performance on letter-string analogies, Raven's Progressive Matrices, and digit-pattern problems collapses when test stimuli are constructed to be unlikely in training data: GPT-class models fail on novel alphabets where humans, including children, generalise robustly. Chollet's ARC-AGI benchmark~\cite{chollet2019arc, chollet2024onthemeasureofintelligence} was constructed specifically to expose this failure: each task supplies a handful of input--output examples of an abstract transformation and requires applying it to a held-out input. The failure mode is consistent across studies: LLMs match on surface features, not on relational structure. Where the abstract pattern requires a content-independent representation, the model has nothing to fall back on.
 
 \subsection{The neurobiological evidence for structure--content factorisation}
 
@@ -101,9 +97,9 @@ The Tolman--Eichenbaum Machine~\cite{whittington2020tem} formalises this as a co
 
 \subsection{The proposal}
 
-We propose the Schema-Factored Reasoning Architecture (\SFRA): a neurosymbolic system that operationalises the cognitive-map factorisation for procedural reasoning. \SFRA\ maintains a library of \emph{schemas}---parameterised relational templates over typed operations---that are induced from few examples, stored as content-independent abstractions, and applied to new problems by mapping the problem's relational structure onto the schema and binding the schema's variables to problem content. An LLM provides the content layer (parsing problems, supplying values, generating natural-language output); a structural layer parses content into relational graphs and operates the schema library; instantiated schemas execute on a deterministic typed-DAG executor inherited from prior work on the Notion-Based Reasoning System; a consolidation process driven by replay over successful traces grows the library over time.
+We propose the Notion-Based Reasoning System (\NBRS): a neurosymbolic system that operationalises the cognitive-map factorisation for procedural reasoning. \NBRS\ maintains a library of \emph{notions}---parameterised relational templates over typed operations---that are induced from few examples, stored as content-independent abstractions, and applied to new problems by mapping the problem's relational structure onto the notion and binding the notion's variables to problem content. An LLM provides the content layer (parsing problems, supplying values, generating natural-language output); a structural layer parses content into relational graphs and operates the notion library; instantiated notions execute on the deterministic typed-DAG Graph-Structured Recurrent Executor; a consolidation process driven by replay over successful traces grows the library over time.
 
-The technical content of this document is in five parts. \Cref{sec:conceptual} fixes the conceptual framework: the structure--content distinction, schemas as the unit of transfer, the relationship to cognitive maps. \Cref{sec:prelim,sec:schemas} give the formal preliminaries and define schemas, instantiation, and structural matching. \Cref{sec:architecture} specifies the five-component architecture. \Cref{sec:substrate} compresses the execution substrate (the Graph-Structured Recurrent Executor; full operational properties retained in \Cref{app:executor}). \Cref{sec:induction,sec:transfer} develop the schema-induction and analogical-transfer mechanisms, including conditions for soundness. \Cref{sec:empirical} states the empirical programme: a tiered set of cross-domain transfer benchmarks on which the architecture is to be evaluated against contemporary LLM baselines.
+The technical content of this document is in five parts. \Cref{sec:conceptual} fixes the conceptual framework: the structure--content distinction, notions as the unit of transfer, the relationship to cognitive maps. \Cref{sec:prelim,sec:notions} give the formal preliminaries and define notions, instantiation, and structural matching. \Cref{sec:architecture} specifies the five-component architecture. \Cref{sec:substrate} compresses the execution substrate; full operational properties are retained in \Cref{app:executor}. \Cref{sec:induction,sec:transfer} develop the notion-induction and analogical-transfer mechanisms, including conditions for soundness. \Cref{sec:empirical} states the empirical programme: two cross-domain transfer demonstrations on which the architecture is to be evaluated against contemporary LLM baselines.
 
 \section{Conceptual Framework}
 \label{sec:conceptual}
@@ -114,22 +110,22 @@ A reasoning problem has two separable aspects. The \emph{content} consists of th
 
 Two problems share content when they mention the same things; they share structure when the dependency graphs of their solutions are isomorphic up to relabelling. Contemporary LLMs blend these in a single token stream and a single attention computation. When training distributions cover the content--structure joint distribution densely, this works; when test problems combine familiar structure with unfamiliar content, it breaks.
 
-\subsection{Schemas as the unit of transfer}
+\subsection{Notions as the unit of transfer}
 
-We define a \emph{schema} as a parameterised relational template: a typed notion-DAG in which leaves and constants are replaced by typed variables. Concretely, a schema for the binary-search procedure has the form ``given a sorted sequence $x$ of type $T^\ast$ and a target value $y$ of type $T$, iteratively halve the search interval according to a comparison primitive $\mathsf{cmp} : T \times T \to \mathsf{Bool}$.'' This template has no commitment to what $T$ is, what specific elements $x$ contains, or what specific value $y$ takes. Instantiating the schema requires binding $T$, $x$, $y$, and $\mathsf{cmp}$ to a concrete problem; once bound, the schema produces a concrete typed DAG that the executor can run.
+We define a \emph{notion} as a parameterised relational template: a typed operation DAG in which leaves, constants, and primitive choices are replaced by typed variables. Concretely, a notion for the binary-search procedure has the form ``given a sorted sequence $x$ of type $T^\ast$ and a target value $y$ of type $T$, iteratively halve the search interval according to a comparison primitive $\mathsf{cmp} : T \times T \to \mathsf{Bool}$.'' This template has no commitment to what $T$ is, what specific elements $x$ contains, or what specific value $y$ takes. Instantiating the notion requires binding $T$, $x$, $y$, and $\mathsf{cmp}$ to a concrete problem; once bound, the notion produces a concrete typed operation DAG that the executor can run.
 
-A schema, in this sense, is exactly the object that the cognitive-map literature identifies as the entorhinal structural code. It is the abstract pattern that survives transfer; the binding is the conjunctive code that combines structure with content.
+A notion, in this sense, is exactly the object that the cognitive-map literature identifies as the entorhinal structural code. It is the abstract pattern that survives transfer; the binding is the conjunctive code that combines structure with content.
 
 \subsection{Analogical transfer as structural alignment}
 
-Given a new problem $P$ and a library of schemas, transfer proceeds in three steps. First, the structure extractor parses $P$ into a relational graph $G_P$ describing $P$'s entities, types, and dependencies. Second, the analogy engine searches the library for a schema $S$ whose structure aligns with $G_P$ under some type-respecting binding $\beta$. Third, the binding $\beta$ instantiates $S$ into a concrete DAG that the executor runs.
+Given a new problem $P$ and a library of notions, transfer proceeds in three steps. First, the structure extractor parses $P$ into a relational graph $G_P$ describing $P$'s entities, types, and dependencies. Second, the analogy engine searches the library for a notion $N$ whose structure aligns with $G_P$ under some type-respecting binding $\beta$. Third, the binding $\beta$ instantiates $N$ into a concrete operation DAG that the executor runs.
 
-The structural alignment in the second step is precisely Gentner's structure-mapping~\cite{gentner1983structure}: a partial isomorphism between schema variables and problem entities that preserves the relational structure. It is not surface similarity. Two problems with no shared surface features can share structure, and the analogy engine finds the schema whose structure matches---regardless of whether the problem's content was ever seen during library construction.
+The structural alignment in the second step is precisely Gentner's structure-mapping~\cite{gentner1983structure}: a partial isomorphism between notion variables and problem entities that preserves the relational structure. It is not surface similarity. Two problems with no shared surface features can share structure, and the analogy engine finds the notion whose structure matches---regardless of whether the problem's content was ever seen during library construction.
 
 \section{Formal Preliminaries}
 \label{sec:prelim}
 
-We work in a typed first-order setting. Values have types; operations have input and output types; reasoning is a typed computation organised as a DAG; schemas are typed DAGs with variables.
+We work in a typed first-order setting. Values have types; operations have input and output types; reasoning is a typed computation organised as a DAG; notions are typed DAGs with variables.
 
 \subsection{Types, values, primitives}
 
@@ -143,91 +139,96 @@ A type system is a pair $(\Types, \Val)$ where $\Types$ is a finite, decidable s
 A primitive operation is a tuple $\tau = (\mathsf{name}_\tau, \mathsf{in}_\tau, \mathsf{out}_\tau, f_\tau)$ with $\mathsf{in}_\tau \in \Types^\ast$ of length $k_\tau$, $\mathsf{out}_\tau \in \Types$, and $f_\tau : \Val_{\tau_1} \times \cdots \times \Val_{\tau_{k_\tau}} \to \Val_{\mathsf{out}_\tau}$ a total semantic function. A primitive library $\Lib = \{\tau_1, \dots, \tau_K\}$ is a finite set.
 \end{definition}
 
-\subsection{Notions and notion DAGs}
+\subsection{Operation nodes and operation DAGs}
 
-A notion is an instance of a primitive operation in a particular computation. A notion DAG is a typed, dependency-ordered graph of notions whose root is the computation's output.
+An operation node is an instance of a primitive operation in a particular computation. An operation DAG is a typed, dependency-ordered graph of operation nodes whose root is the computation's output. Operation DAGs are the substrate on which instantiated notions execute.
 
-\begin{definition}[Notion]
-\label{def:notion}
-A notion over a library $\Lib$ is a tuple $n = (\mathsf{id}_n, \tau_n, \Spec_n, \Parents_n)$ where $\mathsf{id}_n$ is a unique identifier, $\tau_n \in \Lib$, $\Spec_n$ encodes auxiliary parameters of the primitive, and $\Parents_n = (p_1, \dots, p_{k_{\tau_n}})$ is the ordered tuple of parent identifiers. A leaf notion has $\Parents_n = ()$ and a concrete leaf value supplied externally.
+\begin{definition}[Operation node]
+\label{def:opnode}
+An operation node over a library $\Lib$ is a tuple $n = (\mathsf{id}_n, \tau_n, \Spec_n, \Parents_n)$ where $\mathsf{id}_n$ is a unique identifier, $\tau_n \in \Lib$, $\Spec_n$ encodes auxiliary parameters of the primitive, and $\Parents_n = (p_1, \dots, p_{k_{\tau_n}})$ is the ordered tuple of parent identifiers. A leaf node has $\Parents_n = ()$ and a concrete leaf value supplied externally.
 \end{definition}
 
-\begin{definition}[Notion DAG]
-\label{def:notion-dag}
-A notion DAG is a pair $G = (V, r)$ with $V$ a finite set of notions, all parent identifiers referring to elements of $V$, the induced parent relation acyclic, and $r \in V$ a distinguished output notion. The DAG is well-formed when (i) types match along every edge and (ii) every non-leaf notion has exactly $k_{\tau_n}$ parents. All notion DAGs in the remainder are assumed well-formed.
+\begin{definition}[Operation DAG]
+\label{def:opdag}
+An operation DAG is a pair $G = (V, r)$ with $V$ a finite set of operation nodes, all parent identifiers referring to elements of $V$, the induced parent relation acyclic, and $r \in V$ a distinguished output node. The DAG is well-formed when (i) types match along every edge and (ii) every non-leaf node has exactly $k_{\tau_n}$ parents. All operation DAGs in the remainder are assumed well-formed.
 \end{definition}
 
 \begin{definition}[Compositional depth]
 \label{def:depth}
-The depth of notion $n$ is $\dep(n) = 0$ if $\Parents_n = ()$ and $1 + \max_{p \in \Parents_n} \dep(p)$ otherwise. The depth of the graph is $\dep(G) := \dep(r)$.
+The depth of node $n$ is $\dep(n) = 0$ if $\Parents_n = ()$ and $1 + \max_{p \in \Parents_n} \dep(p)$ otherwise. The depth of the graph is $\dep(G) := \dep(r)$.
 \end{definition}
 
-\section{Schemas}
-\label{sec:schemas}
+\section{Notions}
+\label{sec:notions}
 
-Schemas are the load-bearing object of \SFRA: they are what the library stores, what the analogy engine matches, and what transfer transfers.
+Notions are the load-bearing object of \NBRS: they are what the library stores, what the analogy engine matches, and what transfer transfers.
 
-\subsection{Schema variables}
+\subsection{Notion variables}
 
-Where a notion has a concrete primitive $\tau_n \in \Lib$ and a concrete spec, a schema node may have a variable in any of these positions. We introduce three classes of variables, corresponding to the three axes of content along which transfer must abstract.
+Where an operation node has a concrete primitive $\tau_n \in \Lib$ and a concrete spec, a node within a notion may have a variable in any of these positions. We introduce three classes of variables, corresponding to the three axes of content along which transfer must abstract.
 
-\begin{definition}[Schema variables]
-\label{def:schema-vars}
-A schema admits three kinds of variables, drawn from disjoint countable sets:
+\begin{definition}[Notion variables]
+\label{def:notion-vars}
+A notion admits three kinds of variables, drawn from disjoint countable sets:
 \begin{itemize}[topsep=2pt,itemsep=2pt]
-  \item \emph{Type variables} $X, Y, Z, \dots$ ranging over $\Types$. A schema is parameterised over the types of values it operates on.
-  \item \emph{Value variables} $x, y, z, \dots$ ranging over $\Val$. A schema is parameterised over the specific leaf values supplied at runtime.
-  \item \emph{Operator variables} $\alpha, \beta, \gamma, \dots$ ranging over $\Lib$ restricted by type signature. A schema may leave the choice of a particular primitive (e.g., the binary operation passed to a fold) as a parameter.
+  \item \emph{Type variables} $X, Y, Z, \dots$ ranging over $\Types$. A notion is parameterised over the types of values it operates on.
+  \item \emph{Value variables} $x, y, z, \dots$ ranging over $\Val$. A notion is parameterised over the specific leaf values supplied at runtime.
+  \item \emph{Operator variables} $\alpha, \beta, \gamma, \dots$ ranging over $\Lib$ restricted by type signature. A notion may leave the choice of a particular primitive (e.g., the binary operation passed to a fold) as a parameter.
 \end{itemize}
 \end{definition}
 
-\subsection{Schemas as parameterised templates}
+\subsection{Notions as parameterised templates}
 
-\begin{definition}[Schema]
-\label{def:schema}
-A schema $S$ is a tuple $(V_S, r_S, \mathsf{params}_S)$ where:
+\begin{definition}[Notion]
+\label{def:notion}
+A notion $N$ is a tuple $(V_N, r_N, \mathsf{params}_N)$ where:
 \begin{itemize}[topsep=2pt,itemsep=2pt]
-  \item $V_S$ is a finite set of \emph{schema notions}, each of the form $(\mathsf{id}, \alpha, \Spec, \Parents)$ where $\alpha$ may be either a concrete primitive in $\Lib$ or an operator variable, and $\Spec$ may contain value variables.
-  \item $r_S \in V_S$ is a distinguished root.
-  \item $\mathsf{params}_S$ is a list of typed parameters: each type variable's kind, each value variable's type (which may itself reference a type variable), each operator variable's input/output type signature (likewise).
+  \item $V_N$ is a finite set of \emph{parameterised nodes}, each of the form $(\mathsf{id}, \alpha, \Spec, \Parents)$ where $\alpha$ may be either a concrete primitive in $\Lib$ or an operator variable, and $\Spec$ may contain value variables.
+  \item $r_N \in V_N$ is a distinguished root.
+  \item $\mathsf{params}_N$ is a list of typed parameters: each type variable's kind, each value variable's type (which may itself reference a type variable), each operator variable's input/output type signature (likewise).
 \end{itemize}
 The induced parent relation must be acyclic and well-typed under any consistent variable assignment.
 \end{definition}
 
-\begin{example}[The fold schema]
-\label{ex:fold-schema}
-The schema $\mathsf{FOLD}(\alpha, x_0, \ell)$ has parameters: a type variable $X$ (element type), a type variable $Y$ (accumulator type), an operator variable $\alpha : Y \times X \to Y$, a value variable $x_0 : Y$ (initial accumulator), and a value variable $\ell : X^\ast$ (the sequence). The schema body is a length-dependent chain: for a sequence of length $k$, the schema expands into a depth-$k$ chain of $\alpha$ invocations starting from $x_0$. We treat the schema as a function from inputs to a concrete notion-DAG via the expansion rule.
+\begin{example}[The fold notion]
+\label{ex:fold-notion}
+The notion $\mathsf{FOLD}(\alpha, x_0, \ell)$ has parameters: a type variable $X$ (element type), a type variable $Y$ (accumulator type), an operator variable $\alpha : Y \times X \to Y$, a value variable $x_0 : Y$ (initial accumulator), and a value variable $\ell : X^\ast$ (the sequence). The notion body is a length-dependent chain: for a sequence of length $k$, the notion expands into a depth-$k$ chain of $\alpha$ invocations starting from $x_0$. We treat the notion as a function from inputs to a concrete operation DAG via the expansion rule.
 \end{example}
 
-\begin{example}[The binary-search schema]
-\label{ex:bsearch-schema}
-The schema $\mathsf{BSEARCH}(\mathsf{cmp}, \ell, y)$ has a type variable $X$, an operator variable $\mathsf{cmp} : X \times X \to \mathsf{Ordering}$, a value variable $\ell : X^\ast$ (a sorted sequence), and a value variable $y : X$ (the target). The body iteratively halves the candidate range using $\mathsf{cmp}$ until the target is located or the range is empty.
+\begin{example}[The binary-search notion]
+\label{ex:bsearch-notion}
+The notion $\mathsf{BSEARCH}(\mathsf{cmp}, \ell, y)$ has a type variable $X$, an operator variable $\mathsf{cmp} : X \times X \to \mathsf{Ordering}$, a value variable $\ell : X^\ast$ (a sorted sequence), and a value variable $y : X$ (the target). The body iteratively halves the candidate range using $\mathsf{cmp}$ until the target is located or the range is empty.
+\end{example}
+
+\begin{example}[The equilibrium notion]
+\label{ex:equilibrium-notion}
+The notion $\mathsf{EQUILIBRIUM}(\alpha_+, \alpha_-, x)$ has a type variable $X$ (the quantity), two operator variables $\alpha_+, \alpha_- : X \to X$ (the opposing influences as functions of the quantity), and a value variable $x : X$. The body asserts $\alpha_+(x) = \alpha_-(x)$ and solves for $x$. Instantiating this notion to mechanical equilibrium binds $\alpha_+$ and $\alpha_-$ to applied and restoring forces; instantiating it to market equilibrium binds them to supply and demand functions. The notion is a single object, applied across both domains by appropriate binding.
 \end{example}
 
 \subsection{Instantiation}
 
-\begin{definition}[Schema instantiation]
+\begin{definition}[Notion instantiation]
 \label{def:instantiation}
-A binding $\beta$ for a schema $S$ is a map from $S$'s parameters to concrete types, values, and primitives respecting the parameter signatures. The instantiation $\Inst_\beta(S)$ of $S$ under $\beta$ is the concrete notion DAG obtained by substituting $\beta$'s assignments into the schema body, applying any length-dependent expansion rules, and resolving the resulting DAG's types.
+A binding $\beta$ for a notion $N$ is a map from $N$'s parameters to concrete types, values, and primitives respecting the parameter signatures. The instantiation $\Inst_\beta(N)$ of $N$ under $\beta$ is the concrete operation DAG obtained by substituting $\beta$'s assignments into the notion body, applying any length-dependent expansion rules, and resolving the resulting DAG's types.
 \end{definition}
 
 \begin{proposition}[Well-typed instantiation produces a well-formed DAG]
 \label{prop:inst-wellformed}
-For any schema $S$ and any binding $\beta$ that respects $S$'s parameter signatures, $\Inst_\beta(S)$ is a well-formed notion DAG.
+For any notion $N$ and any binding $\beta$ that respects $N$'s parameter signatures, $\Inst_\beta(N)$ is a well-formed operation DAG.
 \end{proposition}
 
 \begin{proof}
-Direct from the schema's typing discipline and the well-formedness of the substitution. Type variables are bound to concrete types; value variables to values of the bound type; operator variables to primitives with the bound signature. Edge typing in the instantiated DAG follows.
+Direct from the notion's typing discipline and the well-formedness of the substitution. Type variables are bound to concrete types; value variables to values of the bound type; operator variables to primitives with the bound signature. Edge typing in the instantiated DAG follows.
 \end{proof}
 
-\subsection{Schema composition}
+\subsection{Notion composition}
 
-Schemas compose by allowing a schema notion to invoke another schema rather than a primitive. The composition mechanism is identical to function calling in a typed lambda calculus: a schema $S$ that uses $S'$ as a sub-procedure simply contains a schema notion whose operator is $S'$ (with its parameters bound either to concrete values or to outer variables of $S$). Composition is therefore the mechanism by which higher-level reasoning patterns (e.g., divide-and-conquer) are built from lower-level ones (e.g., a sort, a merge).
+Notions compose by allowing a parameterised node to invoke another notion rather than a primitive. The composition mechanism is identical to function calling in a typed lambda calculus: a notion $N$ that uses $N'$ as a sub-procedure simply contains a parameterised node whose operator is $N'$ (with its parameters bound either to concrete values or to outer variables of $N$). Composition is therefore the mechanism by which higher-level reasoning patterns (e.g., divide-and-conquer) are built from lower-level ones (e.g., a sort, a merge).
 
-\section{The Schema-Factored Reasoning Architecture}
+\section{Architecture}
 \label{sec:architecture}
 
-\SFRA\ is a five-component system. Each component has a specific responsibility and a specific interface to the others.
+\NBRS\ is a five-component system. Each component has a specific responsibility and a specific interface to the others.
 
 \begin{figure}[ht]
 \centering
@@ -240,21 +241,21 @@ Schemas compose by allowing a schema notion to invoke another schema rather than
 ]
 \node[box]    (c)   at (0, 0)         {Content\\(LLM)};
 \node[box]    (s)   at (3.1, 0)       {Structure\\extractor};
-\node[hilite] (lib) at (6.2, 0)       {Schema\\library};
+\node[hilite] (lib) at (6.2, 0)       {Notion\\library};
 \node[hilite] (ana) at (9.3, 0)       {Analogy\\engine};
 \node[box]    (e)   at (12.4, 0)      {Execution\\(\GSRE)};
 \node[box]    (con) at (6.2, -2.6)    {Consolidation\\(replay)};
 
 \draw[->] (c) -- node[lbl, above]{parse} (s);
 \draw[->] (s) -- node[lbl, above]{$G_P$} (lib);
-\draw[->] (lib) -- node[lbl, above]{$S, \beta$} (ana);
-\draw[->] (ana) -- node[lbl, above]{$\Inst_\beta(S)$} (e);
+\draw[->] (lib) -- node[lbl, above]{$N, \beta$} (ana);
+\draw[->] (ana) -- node[lbl, above]{$\Inst_\beta(N)$} (e);
 \draw[->] (e.south) to[bend left=14] node[lbl, above]{trace} (con.east);
-\draw[->] (con) -- node[lbl, right]{new schemas} (lib);
+\draw[->] (con) -- node[lbl, right]{new notions} (lib);
 \draw[->] (e.south) .. controls (12.4, -4.2) and (0, -4.2) .. node[lbl, below]{result} (c.south);
 \end{tikzpicture}
-\caption{The Schema-Factored Reasoning Architecture. The pipeline is linear: the content layer parses the problem, the structure extractor produces a problem graph $G_P$, the schema library is queried by the analogy engine which returns a matched schema $S$ with a binding $\beta$, and the instantiation $\Inst_\beta(S)$ runs on the execution substrate. Two feedback loops grow and apply the system: traces from successful executions feed the consolidation process, which abstracts new schemas back into the library; the executor's final value returns to the content layer for natural-language output.}
-\label{fig:sfra}
+\caption{The Notion-Based Reasoning System. The pipeline is linear: the content layer parses the problem, the structure extractor produces a problem graph $G_P$, the notion library is queried by the analogy engine which returns a matched notion $N$ with a binding $\beta$, and the instantiation $\Inst_\beta(N)$ runs on the execution substrate. Two feedback loops grow and apply the system: traces from successful executions feed the consolidation process, which abstracts new notions back into the library; the executor's final value returns to the content layer for natural-language output.}
+\label{fig:nbrs}
 \end{figure}
 
 \subsection{Content layer}
@@ -265,34 +266,34 @@ The content layer is a frontier LLM. Its responsibility is restricted to what LL
 
 The structure extractor receives a parsed problem from the content layer and produces a \emph{problem graph} $G_P$: a typed relational graph describing the problem's entities (typed nodes), the relations among them (typed edges or operation nodes), the givens (which entities are known), and the goal (which entity is to be computed). The structure extractor abstracts away from surface vocabulary as far as it can while preserving relational fidelity. A simple word problem about apples and a structurally identical problem about voltages should produce isomorphic problem graphs modulo type relabelling.
 
-\subsection{Schema library}
+\subsection{Notion library}
 
-The schema library $\Schemas$ is a growing set of schemas. Each schema is stored with: its parameterised structure (\Cref{def:schema}), a precondition predicate over problem graphs that determines applicability, example traces from which the schema was abstracted, and meta-information used by the analogy engine (frequency of use, success rate, average depth of instantiated DAG).
+The notion library $\Notions$ is a growing set of notions. Each notion is stored with: its parameterised structure (\Cref{def:notion}), a precondition predicate over problem graphs that determines applicability, example traces from which the notion was abstracted, and meta-information used by the analogy engine (frequency of use, success rate, average depth of instantiated DAG).
 
 \subsection{Analogy engine}
 
-The analogy engine receives a problem graph $G_P$ and queries the library to find schemas whose structure aligns with $G_P$. Alignment is a partial graph isomorphism under a typed binding: a map from the schema's variables to entities, types, and operators in $G_P$ that preserves the relational structure. Where multiple schemas match, the engine ranks candidates by structural coverage, parameter fit, and prior success rate; where partial matches are possible, the engine may propose a binding that uses a sub-schema and leaves the residual structure to be solved by another (recursive) library lookup.
+The analogy engine receives a problem graph $G_P$ and queries the library to find notions whose structure aligns with $G_P$. Alignment is a partial graph isomorphism under a typed binding: a map from the notion's variables to entities, types, and operators in $G_P$ that preserves the relational structure. Where multiple notions match, the engine ranks candidates by structural coverage, parameter fit, and prior success rate; where partial matches are possible, the engine may propose a binding that uses a sub-notion and leaves the residual structure to be solved by another (recursive) library lookup.
 
 The analogy engine is the architectural analogue of Gentner's Structure-Mapping Engine~\cite{falkenhainer1989sme}, lifted to learned representations of types and primitives.
 
 \subsection{Execution substrate}
 
-Once a schema $S$ is selected and bound, $\Inst_\beta(S)$ is a concrete notion DAG. It runs on the Graph-Structured Recurrent Executor (\Cref{sec:substrate}, full treatment in \Cref{app:executor}). The substrate provides the determinism, termination, and soundness guarantees that make the architecture's output predictable from the library's content.
+Once a notion $N$ is selected and bound, $\Inst_\beta(N)$ is a concrete operation DAG. It runs on the Graph-Structured Recurrent Executor (\Cref{sec:substrate}, full treatment in \Cref{app:executor}). The substrate provides the determinism, termination, and soundness guarantees that make the architecture's output predictable from the library's content.
 
 \subsection{Consolidation}
 
-The consolidation process is offline and replay-driven, in deliberate analogy to hippocampal replay during rest~\cite{spens2024consolidation, kumaran2016complementary}. The consolidation engine periodically examines the corpus of recent successful traces, looks for recurring structural patterns, abstracts these patterns into candidate schemas by replacing constants with typed variables, and (subject to verification on held-out traces) adds them to the library. \Cref{sec:induction} treats this in detail.
+The consolidation process is offline and replay-driven, in deliberate analogy to hippocampal replay during rest~\cite{spens2024consolidation, kumaran2016complementary}. The consolidation engine periodically examines the corpus of recent successful traces, looks for recurring structural patterns, abstracts these patterns into candidate notions by replacing constants with typed variables, and (subject to verification on held-out traces) adds them to the library. \Cref{sec:induction} treats this in detail.
 
 \section{The Execution Substrate}
 \label{sec:substrate}
 
-The execution layer of \SFRA\ is the Graph-Structured Recurrent Executor (\GSRE), inherited from the Notion-Based Reasoning System. We summarise its properties here and defer the full operational specification to \Cref{app:executor}. The role of this section is to establish what the architecture inherits from the executor, not to develop it as a contribution.
+The execution layer of \NBRS\ is the Graph-Structured Recurrent Executor (\GSRE). We summarise its properties here and defer the full operational specification to \Cref{app:executor}. The role of this section is to establish what the architecture inherits from the executor, not to develop it as a contribution.
 
 \subsection{Summary of executor properties}
 
-The \GSRE\ is a deterministic state machine over a typed notion DAG. Each node carries a state in $\{\PENDING, \READY, \EXEC, \RESOLVED, \FAILED\}$; a node becomes $\READY$ only when all of its parents are $\RESOLVED$. A shared neural module $\NodeProc_\theta$ is invoked at each node on its local context $(\tau_n, \Spec_n, (v_p)_{p \in \Parents_n})$ alone. The same parameters $\theta$ are reused at every node, regardless of position or graph size.
+The \GSRE\ is a deterministic state machine over an operation DAG. Each node carries a state in $\{\PENDING, \READY, \EXEC, \RESOLVED, \FAILED\}$; a node becomes $\READY$ only when all of its parents are $\RESOLVED$. A shared neural module $\NodeProc_\theta$ is invoked at each node on its local context $(\tau_n, \Spec_n, (v_p)_{p \in \Parents_n})$ alone. The same parameters $\theta$ are reused at every node, regardless of position or graph size.
 
-The properties of relevance to \SFRA\ are:
+The properties of relevance to \NBRS\ are:
 
 \begin{itemize}[topsep=2pt,itemsep=2pt]
   \item \emph{Determinism.} For any DAG $G$ and leaf assignment, the executor produces a unique value assignment (\Cref{thm:executor-determinism}).
@@ -303,182 +304,227 @@ The properties of relevance to \SFRA\ are:
   \item \emph{Capacity--depth decoupling.} Under an independent-error model, success probability decays at worst geometrically in depth, with the per-step parameter count constant in depth (\Cref{thm:executor-decoupling}).
 \end{itemize}
 
-\subsection{Inherited guarantees for instantiated schemas}
+\subsection{Inherited guarantees for instantiated notions}
 
-The point of inheriting the substrate is the following: every schema instantiation $\Inst_\beta(S)$ is, by construction, a well-formed notion DAG. The executor properties above therefore apply directly. The architecture commits to the following inherited guarantee:
+The point of inheriting the substrate is the following: every notion instantiation $\Inst_\beta(N)$ is, by construction, a well-formed operation DAG. The executor properties above therefore apply directly. The architecture commits to the following inherited guarantee:
 
-\begin{proposition}[Inherited correctness for instantiated schemas]
+\begin{proposition}[Inherited correctness for instantiated notions]
 \label{prop:inherited}
-If a schema $S$ is sound (its expansion under a valid binding $\beta$ produces a DAG whose oracle evaluation equals the intended schema semantics) and the node processor $\NodeProc_\theta$ is primitive-correct on the primitives that $\Inst_\beta(S)$ invokes, then \SFRA's output on $S$ instantiated by $\beta$ equals the schema's intended semantics.
+If a notion $N$ is sound (its expansion under a valid binding $\beta$ produces a DAG whose oracle evaluation equals the intended notion semantics) and the node processor $\NodeProc_\theta$ is primitive-correct on the primitives that $\Inst_\beta(N)$ invokes, then \NBRS's output on $N$ instantiated by $\beta$ equals the notion's intended semantics.
 \end{proposition}
 
-The architectural separation isolates two questions that previous monolithic reasoning systems conflate. \emph{Is the right algorithm applied?} is a question about schema selection and binding---the analogy engine's job. \emph{Is the algorithm executed correctly?} is a question about the substrate's reliability---the executor's job. The two can be analysed and improved independently.
+The architectural separation isolates two questions that previous monolithic reasoning systems conflate. \emph{Is the right algorithm applied?} is a question about notion selection and binding---the analogy engine's job. \emph{Is the algorithm executed correctly?} is a question about the substrate's reliability---the executor's job. The two can be analysed and improved independently.
 
-\section{Schema Induction}
+\section{Notion Induction}
 \label{sec:induction}
 
-The library grows by inducing schemas from traces of successful problem-solving. This section formalises the induction problem and identifies its key challenges.
+The library grows by inducing notions from traces of successful problem-solving. This section formalises the induction problem and identifies its key challenges.
 
 \subsection{The induction problem}
 
 \begin{definition}[Trace corpus]
 \label{def:trace-corpus}
-A trace corpus is a finite collection $\mathcal{T} = \{(G_i, \beta_i, v_i)\}_{i=1}^N$ where each $G_i$ is a notion DAG, $\beta_i$ is the binding under which it was produced (if known), and $v_i$ is its root output value (verified correct).
+A trace corpus is a finite collection $\mathcal{T} = \{(G_i, \beta_i, v_i)\}_{i=1}^M$ where each $G_i$ is an operation DAG, $\beta_i$ is the binding under which it was produced (if known), and $v_i$ is its root output value (verified correct).
 \end{definition}
 
-\begin{definition}[Schema induction]
+\begin{definition}[Notion induction]
 \label{def:induction}
-The schema-induction problem is: given a trace corpus $\mathcal{T}$ and the current library $\Schemas$, identify candidate new schemas $S^\ast$ such that some non-trivial subset of $\mathcal{T}$ is expressible as instantiations of $S^\ast$ under appropriate bindings, and admit $S^\ast$ to $\Schemas$ when the resulting compression of $\mathcal{T}$ exceeds the description-length cost of $S^\ast$.
+The notion-induction problem is: given a trace corpus $\mathcal{T}$ and the current library $\Notions$, identify candidate new notions $N^\ast$ such that some non-trivial subset of $\mathcal{T}$ is expressible as instantiations of $N^\ast$ under appropriate bindings, and admit $N^\ast$ to $\Notions$ when the resulting compression of $\mathcal{T}$ exceeds the description-length cost of $N^\ast$.
 \end{definition}
 
 \subsection{Compositional compression}
 
-\begin{definition}[Compression value of a candidate schema]
+\begin{definition}[Compression value of a candidate notion]
 \label{def:compression}
-For a candidate schema $S^\ast$, let $\mathsf{matches}(S^\ast, \mathcal{T})$ be the set of traces in $\mathcal{T}$ that can be re-expressed as $\Inst_{\beta}(S^\ast)$ for some valid binding $\beta$. Let $|G_i|$ be the description length of the explicit trace, $|\beta|$ the description length of a binding, and $|S^\ast|$ the description length of the schema itself. The compression value is
+For a candidate notion $N^\ast$, let $\mathsf{matches}(N^\ast, \mathcal{T})$ be the set of traces in $\mathcal{T}$ that can be re-expressed as $\Inst_{\beta}(N^\ast)$ for some valid binding $\beta$. Let $|G_i|$ be the description length of the explicit trace, $|\beta|$ the description length of a binding, and $|N^\ast|$ the description length of the notion itself. The compression value is
 \[
-\Delta(S^\ast; \mathcal{T}) \;=\; \sum_{i \in \mathsf{matches}(S^\ast, \mathcal{T})} \bigl(|G_i| - |\beta_i|\bigr) \;-\; |S^\ast|.
+\Delta(N^\ast; \mathcal{T}) \;=\; \sum_{i \in \mathsf{matches}(N^\ast, \mathcal{T})} \bigl(|G_i| - |\beta_i|\bigr) \;-\; |N^\ast|.
 \]
 \end{definition}
 
-A candidate with $\Delta(S^\ast; \mathcal{T}) > 0$ is admitted; one with $\Delta \le 0$ is rejected as unproductive. The criterion is the standard minimum-description-length criterion used in inductive program synthesis, adapted to the schema setting~\cite{ellis2021dreamcoder}.
+A candidate with $\Delta(N^\ast; \mathcal{T}) > 0$ is admitted; one with $\Delta \le 0$ is rejected as unproductive. The criterion is the standard minimum-description-length criterion used in inductive program synthesis, adapted to the notion setting~\cite{ellis2021dreamcoder}.
 
 \subsection{Type generalisation}
 
-The hardest sub-problem of schema induction is type generalisation. A trace corpus may contain traces over $\mathsf{Int}$, $\mathsf{Float}$, and $\mathsf{String}$ that all share structural pattern P. The induced schema should be parameterised over a type variable $X$, with the structural pattern P preserved. Detecting that the corpus is consistent with a single type-parameterised schema---rather than three separate type-specific schemas---is the operation that turns library extension into genuine abstraction.
+The hardest sub-problem of notion induction is type generalisation. A trace corpus may contain traces over $\mathsf{Int}$, $\mathsf{Float}$, and $\mathsf{String}$ that all share structural pattern P. The induced notion should be parameterised over a type variable $X$, with the structural pattern P preserved. Detecting that the corpus is consistent with a single type-parameterised notion---rather than three separate type-specific notions---is the operation that turns library extension into genuine abstraction.
 
-We do not give an induction algorithm here; the formal target is a procedure that, given $\mathcal{T}$, produces candidate type-parameterised schemas with $\Delta > 0$. Approaches consistent with the framework include: unification-based generalisation over typed graph patterns, neural sequence-to-sequence schema synthesis, and wake--sleep procedures in the style of DreamCoder.
+We do not give an induction algorithm here; the formal target is a procedure that, given $\mathcal{T}$, produces candidate type-parameterised notions with $\Delta > 0$. Approaches consistent with the framework include: unification-based generalisation over typed graph patterns, neural sequence-to-sequence notion synthesis, and wake--sleep procedures in the style of DreamCoder.
 
-\subsection{Verification of induced schemas}
+\subsection{Verification of induced notions}
 
-A candidate $S^\ast$ admitted to the library must be sound: applying $S^\ast$ to a binding $\beta$ must produce a DAG whose oracle evaluation matches the schema's intended semantics. Two verification strategies are operationally distinct:
+A candidate $N^\ast$ admitted to the library must be sound: applying $N^\ast$ to a binding $\beta$ must produce a DAG whose oracle evaluation matches the notion's intended semantics. Two verification strategies are operationally distinct:
 
 \begin{itemize}[topsep=2pt,itemsep=2pt]
-  \item \emph{Compression-based.} $S^\ast$ is admitted if it compresses a held-out portion of $\mathcal{T}$ that was not used in its induction. This guards against overfitting to the training traces.
-  \item \emph{Executable-test-based.} The system generates synthetic bindings for $S^\ast$, executes the resulting DAGs against an oracle (where available) or against a corroborating schema or LLM-supplied ground truth, and admits $S^\ast$ only when the success rate on synthetic tests exceeds a threshold.
+  \item \emph{Compression-based.} $N^\ast$ is admitted if it compresses a held-out portion of $\mathcal{T}$ that was not used in its induction. This guards against overfitting to the training traces.
+  \item \emph{Executable-test-based.} The system generates synthetic bindings for $N^\ast$, executes the resulting DAGs against an oracle (where available) or against a corroborating notion or LLM-supplied ground truth, and admits $N^\ast$ only when the success rate on synthetic tests exceeds a threshold.
 \end{itemize}
 
-The verification step is what separates schema induction from blind pattern-mining. A schema admitted without verification is at best a hypothesis; admitted with verification, it is a tool the architecture can rely on.
+The verification step is what separates notion induction from blind pattern-mining. A notion admitted without verification is at best a hypothesis; admitted with verification, it is a tool the architecture can rely on.
 
 \section{Analogical Transfer}
 \label{sec:transfer}
 
-The transfer claim that distinguishes \SFRA\ from contemporary monolithic reasoning systems is the following: a schema learned from problems in one content domain can be applied to a problem in a different content domain whose structure aligns with the schema, without retraining and without exposure to bindings drawn from the new domain.
+The transfer claim that distinguishes \NBRS\ from contemporary monolithic reasoning systems is the following: a notion learned from problems in one content domain can be applied to a problem in a different content domain whose structure aligns with the notion, without retraining and without exposure to bindings drawn from the new domain.
 
 \subsection{The transfer property, stated}
 
 \begin{definition}[Cross-domain transfer]
 \label{def:transfer}
-Let $\Schemas$ be the schema library after training on a problem distribution over content domain $\mathcal{C}_{\mathrm{train}}$. Let $P^\ast$ be a problem from content domain $\mathcal{C}_{\mathrm{test}} \ne \mathcal{C}_{\mathrm{train}}$ whose problem graph $G_{P^\ast}$ admits a valid binding $\beta^\ast$ to some schema $S \in \Schemas$ such that $\Inst_{\beta^\ast}(S)$ correctly solves $P^\ast$. \SFRA\ exhibits cross-domain transfer on $P^\ast$ if the analogy engine, given $G_{P^\ast}$ and $\Schemas$, returns $(S, \beta^\ast)$ (or any other binding that yields a correct DAG).
+Let $\Notions$ be the notion library after training on a problem distribution over content domain $\mathcal{C}_{\mathrm{train}}$. Let $P^\ast$ be a problem from content domain $\mathcal{C}_{\mathrm{test}} \ne \mathcal{C}_{\mathrm{train}}$ whose problem graph $G_{P^\ast}$ admits a valid binding $\beta^\ast$ to some notion $N \in \Notions$ such that $\Inst_{\beta^\ast}(N)$ correctly solves $P^\ast$. \NBRS\ exhibits cross-domain transfer on $P^\ast$ if the analogy engine, given $G_{P^\ast}$ and $\Notions$, returns $(N, \beta^\ast)$ (or any other binding that yields a correct DAG).
 \end{definition}
 
-The property has three preconditions: (i) a schema with the required structure exists in the library (the induction layer has produced it from earlier training); (ii) the structure extractor produces a problem graph for $P^\ast$ that is amenable to alignment with that schema; (iii) the analogy engine identifies and binds the schema correctly. Failure to transfer can be diagnosed to one of these three preconditions.
+The property has three preconditions: (i) a notion with the required structure exists in the library (the induction layer has produced it from earlier training); (ii) the structure extractor produces a problem graph for $P^\ast$ that is amenable to alignment with that notion; (iii) the analogy engine identifies and binds the notion correctly. Failure to transfer can be diagnosed to one of these three preconditions.
 
 \subsection{Structure-mapping over learned representations}
 
-The analogy engine implements a form of structure-mapping~\cite{gentner1983structure}: it searches for a partial isomorphism between the schema's graph and the problem's graph that preserves relations and respects types, prioritising mappings that align deeper relational structure over those that align mere surface features. The implementation challenge---which the literature on classical structure-mapping engines did not face---is that the schema's variables and the problem's entities live in learned representational spaces. The alignment is not over hand-written symbols but over typed embeddings.
+The analogy engine implements a form of structure-mapping~\cite{gentner1983structure}: it searches for a partial isomorphism between the notion's graph and the problem's graph that preserves relations and respects types, prioritising mappings that align deeper relational structure over those that align mere surface features. The implementation challenge---which the literature on classical structure-mapping engines did not face---is that the notion's variables and the problem's entities live in learned representational spaces. The alignment is not over hand-written symbols but over typed embeddings.
 
-We treat the alignment procedure as itself a learned component: a neural matcher that takes a schema graph and a problem graph and outputs a candidate binding, trained on (synthetic and real) pairs of (problem, applicable schema) examples. Training such a matcher is the central engineering problem of the analogy engine.
+We treat the alignment procedure as itself a learned component: a neural matcher that takes a notion graph and a problem graph and outputs a candidate binding, trained on (synthetic and real) pairs of (problem, applicable notion) examples. Training such a matcher is the central engineering problem of the analogy engine.
 
 \subsection{Soundness of transfer}
 
 \begin{proposition}[Soundness of bound transfer]
 \label{prop:transfer-soundness}
-Suppose $S \in \Schemas$ is a sound schema and $\NodeProc_\theta$ is primitive-correct on the primitives that $\Inst_\beta(S)$ invokes. If the analogy engine returns a binding $\beta$ such that the parameter-signature constraints of $S$ are satisfied and the typing of $\Inst_\beta(S)$ matches the problem $P^\ast$'s required input--output types, then the value $v_r$ returned by the executor is correct for $P^\ast$.
+Suppose $N \in \Notions$ is a sound notion and $\NodeProc_\theta$ is primitive-correct on the primitives that $\Inst_\beta(N)$ invokes. If the analogy engine returns a binding $\beta$ such that the parameter-signature constraints of $N$ are satisfied and the typing of $\Inst_\beta(N)$ matches the problem $P^\ast$'s required input--output types, then the value $v_r$ returned by the executor is correct for $P^\ast$.
 \end{proposition}
 
 \begin{proof}
-Schema soundness gives correctness of $\Inst_\beta(S)$ against the schema's intended semantics. Primitive correctness gives executor correctness against the schema's semantics. Type compatibility gives that the schema's semantics is what $P^\ast$ requires.
+Notion soundness gives correctness of $\Inst_\beta(N)$ against the notion's intended semantics. Primitive correctness gives executor correctness against the notion's semantics. Type compatibility gives that the notion's semantics is what $P^\ast$ requires.
 \end{proof}
 
-The implication: transfer failure is always attributable to one of (i) wrong schema selected, (ii) wrong binding constructed, (iii) executor error on the primitives, (iv) type-compatibility mismatch undetected by the analogy engine. The architecture localises blame, which is what makes failure analysis tractable.
+The implication: transfer failure is always attributable to one of (i) wrong notion selected, (ii) wrong binding constructed, (iii) executor error on the primitives, (iv) type-compatibility mismatch undetected by the analogy engine. The architecture localises blame, which is what makes failure analysis tractable.
 
 \section{Generalisation Properties}
 \label{sec:generalization}
 
-The structure--content factorisation has direct consequences for generalisation. Because schemas are content-independent, applying a learned schema to new content does not require learning new schema parameters. Because the executor sees only local contexts, executing a schema on values drawn from a new distribution does not require depth-dependent capacity. The architecture's generalisation properties are therefore inherited from two separable sources: schema-level generalisation (the analogy engine's ability to recognise structural matches across domains) and execution-level generalisation (the executor's ability to handle the bindings the analogy engine produces).
+The structure--content factorisation has direct consequences for generalisation. Because notions are content-independent, applying a learned notion to new content does not require learning new notion parameters. Because the executor sees only local contexts, executing a notion on values drawn from a new distribution does not require depth-dependent capacity. The architecture's generalisation properties are therefore inherited from two separable sources: notion-level generalisation (the analogy engine's ability to recognise structural matches across domains) and execution-level generalisation (the executor's ability to handle the bindings the analogy engine produces).
 
-\subsection{Schema-level generalisation}
+\subsection{Notion-level generalisation}
 
 \begin{proposition}[Structural transfer dominates surface transfer]
 \label{prop:structural-dominance}
-Let $\Schemas$ be a library trained on $\mathcal{C}_{\mathrm{train}}$. For a test problem $P^\ast$ from $\mathcal{C}_{\mathrm{test}}$, the existence of a successful binding to some $S \in \Schemas$ depends only on the relational structure of $P^\ast$, not on whether $\mathcal{C}_{\mathrm{test}}$ overlaps $\mathcal{C}_{\mathrm{train}}$.
+Let $\Notions$ be a library trained on $\mathcal{C}_{\mathrm{train}}$. For a test problem $P^\ast$ from $\mathcal{C}_{\mathrm{test}}$, the existence of a successful binding to some $N \in \Notions$ depends only on the relational structure of $P^\ast$, not on whether $\mathcal{C}_{\mathrm{test}}$ overlaps $\mathcal{C}_{\mathrm{train}}$.
 \end{proposition}
 
 \begin{proof}
-Schema variables abstract over types, values, and operators. Two problems with isomorphic relational structure (under a type relabelling that respects operator signatures) admit the same set of schema bindings. Domain overlap affects only what types and values appear; it does not affect what relational structures appear. Therefore the existence of a transfer-supporting schema is invariant to domain overlap, conditional on the structure of $P^\ast$ being one for which an appropriate schema exists in $\Schemas$.
+Notion variables abstract over types, values, and operators. Two problems with isomorphic relational structure (under a type relabelling that respects operator signatures) admit the same set of notion bindings. Domain overlap affects only what types and values appear; it does not affect what relational structures appear. Therefore the existence of a transfer-supporting notion is invariant to domain overlap, conditional on the structure of $P^\ast$ being one for which an appropriate notion exists in $\Notions$.
 \end{proof}
 
 This is the formal counterpart of the cognitive-map result: a structural representation that abstracts over content predicts transfer wherever structure repeats.
 
 \subsection{Execution-level generalisation}
 
-The execution substrate inherits the local-context invariance property of the \GSRE: the per-node processor sees only the local context $(\tau_n, \Spec_n, (v_p)_{p \in \Parents_n})$, so its error rate on a node depends only on the marginal distribution of local contexts, not on the depth or shape of the surrounding graph (\Cref{thm:executor-local-context}). For instantiated schemas, this means that depth---which can be arbitrary if a schema like $\mathsf{FOLD}$ is bound to a long sequence---does not introduce new failure modes at the executor level.
+The execution substrate inherits the local-context invariance property of the \GSRE: the per-node processor sees only the local context $(\tau_n, \Spec_n, (v_p)_{p \in \Parents_n})$, so its error rate on a node depends only on the marginal distribution of local contexts, not on the depth or shape of the surrounding graph (\Cref{thm:executor-local-context}). For instantiated notions, this means that depth---which can be arbitrary if a notion like $\mathsf{FOLD}$ is bound to a long sequence---does not introduce new failure modes at the executor level.
 
 \section{Empirical Programme}
 \label{sec:empirical}
 
-The architecture's claims are empirical. The minimal programme that would test them comprises four tiered demonstrations, each calibrated to a specific architectural prediction.
+The architecture's claims are empirical. The minimum programme that would test them comprises two cross-domain demonstrations, each chosen to expose a specific failure mode of contemporary LLMs that the architecture is designed to address. A short third subsection lists the diagnostic measurements that accompany the two demonstrations.
 
-\subsection{Tier 1: structural transfer within a domain}
+\subsection{Demonstration 1: the ARC-AGI subset}
+\label{sec:emp-arc}
 
-The minimum viable test: train the schema library on traces of a structural pattern (e.g., the binary-search procedure) instantiated on integer inputs. Without further training, evaluate on the same procedure applied to inputs of types not seen during training (strings, floating-point numbers, structured records). Success requires that the schema's type variables be correctly bound to the new type and that the executor handle the new primitives. Failure modes localise to the analogy engine (type binding) or to the executor (primitive accuracy on new types).
+\paragraph{Task.}
+The Abstraction and Reasoning Corpus (ARC-AGI)~\cite{chollet2019arc, chollet2024onthemeasureofintelligence} presents tasks of the form: given two to five input--output grid pairs demonstrating an abstract transformation, infer the transformation and apply it to a held-out input grid. The benchmark was constructed specifically to require sample-efficient abstraction beyond what frontier LLMs reliably achieve. Performance on ARC-AGI is a direct test of the structure--content factorisation hypothesis: solving a task requires extracting a transformation from a handful of examples and binding it correctly to a previously unseen input.
 
-\subsection{Tier 2: cross-content transfer within a structural pattern}
+\paragraph{Scope.}
+We target a subset of ARC-AGI tasks whose transformations are expressible as compositions of grid-level primitive operations: rotate, reflect, recolour, fill connected region, count occurrences, replicate, translate, mask, overlay. The primitive library is fixed in advance. The notion-induction layer must mine, from the task's demonstration examples, a notion whose instantiation under appropriate bindings reproduces all examples and generalises to the held-out input.
 
-A stronger test: train on traces from one content domain whose problem graphs share structure with problems in a different content domain. Examples include: train on optimisation problems framed as iterative refinement (e.g., Newton's method on polynomial roots), then test on problems whose underlying procedure is structurally identical but whose content is entirely different (e.g., bisection on binary games, fixed-point iteration on convergent series). Success requires the analogy engine to recognise the structural match across surface content.
+\paragraph{Architecture mapping.}
+The content layer ingests the task's grids and parses each into a typed grid representation (entities are connected regions, with attributes such as colour, shape, and position). The structure extractor produces, for each demonstration pair, a candidate relational graph mapping input regions to output regions. The notion-induction process synthesises a parameterised template from the demonstration graphs. The analogy engine binds this template to the test input. The executor produces the predicted output grid.
 
-\subsection{Tier 3: cross-domain analogical reasoning benchmarks}
+\paragraph{Comparison.}
+Each task is evaluated against (i) a frontier LLM with chain-of-thought prompting, (ii) the same LLM augmented with retrieval over the demonstration corpus, (iii) ablations of \NBRS\ with the notion library disabled or the analogy engine replaced by random selection, (iv) where available, results from the ARC Prize leaderboard for context.
 
-The architecture's claim should be testable against contemporary benchmarks designed to expose LLM analogical failures. Two candidates:
+\paragraph{Success criteria.}
+The minimum bar is per-task accuracy on the chosen subset matching the frontier-LLM baseline using substantially fewer compute and substantially less reliance on prompt-engineering. The aspirational bar is exceeding the frontier LLM, particularly on tasks classified as ``hard'' on the ARC leaderboard. The interpretive bar is that the notions induced from one subset of tasks transfer to a held-out subset whose tasks were never used in induction---demonstrating that the library has captured genuine compositional abstractions.
 
+\subsection{Demonstration 2: cross-discipline scientific equilibrium analogy}
+\label{sec:emp-equilibrium}
+
+\paragraph{Task.}
+The more ambitious demonstration tests whether a notion induced from problems in one scientific discipline transfers to a structurally analogous problem in an unrelated discipline. The architecture is trained on a corpus of mechanical-equilibrium problems---force balance on rigid bodies, spring--mass systems at rest, lever arms, fluid pressures at equilibrium---and the induced notions are evaluated on novel problems from economic equilibrium, chemical equilibrium, and population equilibrium.
+
+\paragraph{The structural pattern.}
+Each test domain shares the abstract equilibrium-reasoning structure formalised in \Cref{ex:equilibrium-notion}: identify two (or more) opposing influences, write them as functions of a quantity, set them equal at the equilibrium point, and solve. The surface content differs entirely. Successful transfer requires the analogy engine to recognise the structural match across surface domains and to bind the equilibrium notion's variables to the new domain's entities.
+
+\paragraph{Test problems.}
+We evaluate transfer on four discipline pairs, each of which carries an equilibrium structure but no shared surface content with the mechanical training corpus:
 \begin{itemize}[topsep=2pt,itemsep=2pt]
-  \item \emph{Letter-string analogies in novel alphabets}~\cite{lewis2024analogy, mitchell2024analogy}. LLMs are known to fail on these in proportion to the unfamiliarity of the alphabet. \SFRA, with schemas abstracting over the alphabet's specific symbols, should not exhibit this degradation.
-  \item \emph{ARC-AGI tasks}~\cite{chollet2019arc, chollet2024onthemeasureofintelligence}. Each task supplies a few input--output examples of an abstract transformation and requires applying it to a held-out input. The benchmark is designed to require few-shot abstraction beyond pattern matching. \SFRA's schema-induction layer is the architectural counterpart to what these tasks measure.
+  \item \emph{Supply--demand market equilibrium.} Find the price at which a supply function and a demand function are equal.
+  \item \emph{Chemical equilibrium under perturbation.} Predict the direction of shift in concentrations when a reaction at equilibrium is perturbed (Le Chatelier).
+  \item \emph{Predator--prey steady state.} Compute the fixed-point populations of a Lotka--Volterra-style system.
+  \item \emph{Nash equilibrium in a 2-player normal-form game.} Identify the strategy pair where each player's choice is a best response to the other.
 \end{itemize}
 
-\subsection{Tier 4: cross-discipline conceptual transfer}
+\paragraph{Architecture mapping.}
+The content layer (the LLM) parses each problem statement into entities, types, and the goal. The structure extractor produces a problem graph whose nodes are quantities and whose edges encode the relevant relations (the supply function depending on price, the demand function depending on price, the goal of finding their intersection). The analogy engine matches this problem graph against $\mathsf{EQUILIBRIUM}$ and proposes a binding: $\alpha_+$ to the supply function, $\alpha_-$ to the demand function, $X$ to the price type, $x$ to the price variable. The executor runs the bound DAG.
 
-The architecture's most ambitious target: train the library on procedures from one scientific or mathematical discipline, and demonstrate that schemas induced from training transfer to a structurally analogous problem in an unrelated discipline. Candidate transfer pairs include: equilibrium reasoning in mechanics $\to$ market-clearing in economics; iterative refinement in numerical analysis $\to$ contraction-mapping arguments in functional analysis; recursive case analysis in combinatorics $\to$ inductive proofs in graph theory. Success at this tier would directly demonstrate the analogical capability that humans display and contemporary LLMs do not.
+\paragraph{Comparison.}
+The same three baselines as Demonstration 1, plus a fourth: a frontier LLM with explicit chain-of-thought scaffolding tuned for cross-domain analogical reasoning (e.g., explicit prompts asking the model to map the problem to a familiar analogue).
 
-\subsection{Baselines and diagnostics}
+\paragraph{Success criteria.}
+The minimum bar is exceeding the frontier-LLM baseline on at least one of the four test domains while not regressing on within-discipline (mechanical-equilibrium) test problems. The aspirational bar is exceeding the frontier LLM across all four test domains, with a notion-library size that did not include any economic, chemical, biological, or game-theoretic training examples. A negative result is interpretable: it would localise to a specific component (structure-extractor parsing of the new domain, analogy-engine match against the equilibrium notion, executor handling of the bound primitives) and the diagnostic measurements of \Cref{sec:emp-diagnostics} would identify which.
 
-Each tier is to be evaluated against three baselines: a frontier LLM with chain-of-thought prompting, a frontier LLM with retrieval augmentation over the same trace corpus from which \SFRA's library was induced, and an ablation of \SFRA\ with the schema library disabled (forcing the architecture to solve each problem from scratch via the executor). Diagnostics include schema-induction efficiency (how many traces are required to induce each schema), transfer success rate as a function of structural divergence between training and test problems, and the marginal-invariance diagnostic from prior work on the executor.
+\subsection{Diagnostics and ablations}
+\label{sec:emp-diagnostics}
+
+Each demonstration is accompanied by the following measurements:
+
+\begin{itemize}[topsep=2pt,itemsep=4pt]
+  \item \emph{Notion-induction efficiency.} The number of training traces required before each notion enters the library at the verification threshold. Reported as a learning curve over the trace corpus size.
+  \item \emph{Analogy-engine accuracy.} The fraction of test problems for which the analogy engine returns the intended notion and binding, decomposed by demonstration tier. Errors classified as wrong-notion, wrong-binding, or no-match.
+  \item \emph{Per-primitive error rate and correlation structure.} The empirical error rate of $\NodeProc_\theta$ on the primitives that appear in test DAGs, together with the empirical covariance of error events across invocations sharing a context shape. This calibrates the executor's depth-decoupling claim (\Cref{thm:executor-decoupling}).
+  \item \emph{Marginal-invariance diagnostic.} A KL or MMD divergence between the empirical context marginals of training-derived DAGs and test-derived DAGs. A small divergence supports the depth-generalisation claim of \Cref{cor:ood-accuracy}; a large divergence quantifies the gap.
+  \item \emph{Notion-library ablation.} For each demonstration, the performance of \NBRS\ with the notion library replaced by an empty library (forcing the system to solve each problem from scratch via the executor) and with the analogy engine replaced by random notion selection. The drop between full \NBRS\ and these ablations attributes performance to the library and the alignment, respectively.
+\end{itemize}
+
+A negative result on either headline demonstration that is not accompanied by an explanatory diagnostic should be interpreted as a falsification of the architectural hypothesis at its current scale. A negative result accompanied by a localising diagnostic identifies the component to improve.
 
 \section{Connections to Prior Work}
 \label{sec:related}
 
-\paragraph{Cognitive maps and entorhinal--hippocampal computation.} The architectural commitment to structure--content factorisation is taken from the Tolman--Eichenbaum Machine~\cite{whittington2020tem} and the cognitive-map literature it formalises~\cite{behrens2018cognitive, constantinescu2016conceptual, whittington2022disentanglement}. \SFRA\ operationalises the same factorisation in a procedural-reasoning setting: schemas are structural codes, bindings are conjunctive codes, and library growth is analogous to entorhinal consolidation.
+\paragraph{Cognitive maps and entorhinal--hippocampal computation.}
+The architectural commitment to structure--content factorisation is taken from the Tolman--Eichenbaum Machine~\cite{whittington2020tem} and the cognitive-map literature it formalises~\cite{behrens2018cognitive, constantinescu2016conceptual, whittington2022disentanglement}. \NBRS\ operationalises the same factorisation in a procedural-reasoning setting: notions are structural codes, bindings are conjunctive codes, and library growth is analogous to entorhinal consolidation.
 
-\paragraph{Structure-mapping theory.} The analogy engine is the operational counterpart of Gentner's Structure-Mapping Theory~\cite{gentner1983structure} and its computational implementation, the Structure-Mapping Engine~\cite{falkenhainer1989sme}. The novel commitment of \SFRA\ is to perform structure-mapping over learned (rather than hand-symbolic) representations of types and operators.
+\paragraph{Structure-mapping theory.}
+The analogy engine is the operational counterpart of Gentner's Structure-Mapping Theory~\cite{gentner1983structure} and its computational implementation, the Structure-Mapping Engine~\cite{falkenhainer1989sme}. The novel commitment of \NBRS\ is to perform structure-mapping over learned (rather than hand-symbolic) representations of types and operators.
 
-\paragraph{Library learning and inductive program synthesis.} Schema induction (\Cref{sec:induction}) is closest to library learning as developed in DreamCoder~\cite{ellis2021dreamcoder} and the broader inductive-program-synthesis literature~\cite{gulwani2017program}. \SFRA\ extends this to typed parameterisation over operators and to integration with an LLM content layer, both of which the existing library-learning systems do not address.
+\paragraph{Library learning and inductive program synthesis.}
+Notion induction (\Cref{sec:induction}) is closest to library learning as developed in DreamCoder~\cite{ellis2021dreamcoder} and the broader inductive-program-synthesis literature~\cite{gulwani2017program}. \NBRS\ extends this to typed parameterisation over operators and to integration with an LLM content layer, both of which the existing library-learning systems do not address.
 
-\paragraph{Neural module networks.} Andreas et al.~\cite{andreas2016neural} compose computation graphs from a fixed module library at inference time. \SFRA\ generalises this in two directions: the library is grown (not fixed), and the modules carry typed parameterisation that supports cross-domain transfer.
+\paragraph{Neural module networks.}
+Andreas et al.~\cite{andreas2016neural} compose computation graphs from a fixed module library at inference time. \NBRS\ generalises this in two directions: the library is grown (not fixed), and the modules carry typed parameterisation that supports cross-domain transfer.
 
-\paragraph{Consolidation in neural models.} The replay-driven consolidation process is informed by recent computational models of hippocampal replay and memory consolidation~\cite{spens2024consolidation, kumaran2016complementary}.
+\paragraph{Consolidation in neural models.}
+The replay-driven consolidation process is informed by recent computational models of hippocampal replay and memory consolidation~\cite{spens2024consolidation, kumaran2016complementary}.
 
-\paragraph{LLM-augmented neurosymbolic reasoning.} Recent work on neurosymbolic LLM augmentation~\cite{lewis2024analogy} typically translates problems into a fixed logical form for an external solver. \SFRA\ differs in maintaining a learned, growing library of typed schemas; the content layer's role is parsing, not full reduction to logic.
+\paragraph{LLM-augmented neurosymbolic reasoning.}
+Recent work on neurosymbolic LLM augmentation~\cite{lewis2024analogy} typically translates problems into a fixed logical form for an external solver. \NBRS\ differs in maintaining a learned, growing library of typed notions; the content layer's role is parsing, not full reduction to logic.
 
-\paragraph{The executor substrate.} The Graph-Structured Recurrent Executor and its operational guarantees are inherited from prior work on the Notion-Based Reasoning System, summarised here in \Cref{sec:substrate} and detailed in \Cref{app:executor}.
+\paragraph{ARC-AGI and analogy benchmarks.}
+Chollet's ARC-AGI benchmark~\cite{chollet2019arc, chollet2024onthemeasureofintelligence} and the analogical-reasoning stress tests of Lewis and Mitchell~\cite{lewis2024analogy} and Webb et al.~\cite{webb2023emergent} are the empirical targets of \Cref{sec:emp-arc}.
+
+\paragraph{The executor substrate.}
+The Graph-Structured Recurrent Executor and its operational guarantees are summarised in \Cref{sec:substrate} and detailed in \Cref{app:executor}.
 
 \section{Discussion}
 \label{sec:discussion}
 
-The architectural bet of \SFRA\ is that the transfer gap separating contemporary LLMs from human reasoning is fundamentally about representation: the absence of an explicit, content-independent layer that stores transferable procedures. The neuroscience evidence for such a layer in biological reasoners is strong and recent. The classical symbolic literature on analogical reasoning has long argued that structure-mapping is the right computational model. What has been missing is an integration that combines the abstraction power of cognitive-map-style factorisation, the procedural depth of program-induction-style library learning, and the perceptual breadth of LLM-style content processing.
+The architectural bet of \NBRS\ is that the transfer gap separating contemporary LLMs from human reasoning is fundamentally about representation: the absence of an explicit, content-independent layer that stores transferable procedures. The neuroscience evidence for such a layer in biological reasoners is strong and recent. The classical symbolic literature on analogical reasoning has long argued that structure-mapping is the right computational model. What has been missing is an integration that combines the abstraction power of cognitive-map-style factorisation, the procedural depth of program-induction-style library learning, and the perceptual breadth of LLM-style content processing.
 
-Two design commitments of \SFRA\ are non-obvious and warrant emphasis. First, the schema library is the architectural locus of learning at the structural level: the LLM is not asked to learn or transfer procedures, only to parse and generate. This separation is what gives the system the prospect of sample-efficient transfer. Second, the execution substrate is deliberately conservative: the \GSRE\ guarantees only what a deterministic typed-DAG evaluator can guarantee. The interesting failure modes of the system are therefore localised to schema induction and analogical alignment, not to execution---which is the right place for them to be.
+Two design commitments of \NBRS\ are non-obvious and warrant emphasis. First, the notion library is the architectural locus of learning at the structural level: the LLM is not asked to learn or transfer procedures, only to parse and generate. This separation is what gives the system the prospect of sample-efficient transfer. Second, the execution substrate is deliberately conservative: the \GSRE\ guarantees only what a deterministic typed-DAG evaluator can guarantee. The interesting failure modes of the system are therefore localised to notion induction and analogical alignment, not to execution---which is the right place for them to be.
 
-The empirical risk is real. Schema induction in non-trivial domains is open; structure-mapping in learned representations is open; integration with LLMs at the content layer is open. The architecture is not a guaranteed solution. It is a coherent place to spend effort, with each architectural commitment tied to a specific scientific hypothesis and a specific failure-diagnosis pathway.
+The empirical risk is real. Notion induction in non-trivial domains is open; structure-mapping in learned representations is open; integration with LLMs at the content layer is open. The architecture is not a guaranteed solution. It is a coherent place to spend effort, with each architectural commitment tied to a specific scientific hypothesis and a specific failure-diagnosis pathway.
 
-If the empirical programme of \Cref{sec:empirical} succeeds at Tiers 1 and 2 with reasonable sample complexity, the architecture has demonstrated the structure--content factorisation hypothesis at small scale. If it succeeds at Tier 3, it has demonstrated competitive performance with frontier LLMs on benchmarks designed to expose their analogical failures. If it succeeds at Tier 4, it has demonstrated cross-discipline analogical reasoning---the capability that, more than any other, distinguishes human general intelligence from current artificial systems.
+If the ARC-AGI demonstration of \Cref{sec:emp-arc} succeeds at matching or exceeding frontier-LLM performance with notions induced from a held-out subset of tasks, the architecture has demonstrated the structure--content factorisation hypothesis on a benchmark explicitly designed to require it. If the scientific-equilibrium demonstration of \Cref{sec:emp-equilibrium} succeeds---training on one discipline and transferring correctly to three others---it has demonstrated the cross-discipline analogical reasoning that, more than any other capability, distinguishes human general intelligence from current artificial systems.
 
 \appendix
 
 \section{The Execution Substrate: Full Specification}
 \label{app:executor}
 
-This appendix specifies the \GSRE\ in detail and proves its operational properties. The text of this appendix is inherited from the earlier formal development of the Notion-Based Reasoning System and is retained here without substantive modification.
+This appendix specifies the \GSRE\ in detail and proves its operational properties.
 
 \subsection{Node states}
 
@@ -513,7 +559,7 @@ During execution, every node $n \in V$ is in one of five states drawn from $\mat
 \caption{The Graph-Structured Recurrent Executor}
 \label{alg:gsre}
 \begin{algorithmic}[1]
-\Require Well-formed notion DAG $G = (V, r)$ with leaf assignment $\sigma$; processor $\NodeProc_\theta$.
+\Require Well-formed operation DAG $G = (V, r)$ with leaf assignment $\sigma$; processor $\NodeProc_\theta$.
 \Ensure A (possibly partial) value assignment $v : V \rightharpoonup \Val$.
 \State \textbf{for each} $n \in V$: $\NState(n) \gets \PENDING$
 \State \textbf{for each} leaf $n \in V$: $v_n \gets \sigma(n)$;\; $\NState(n) \gets \RESOLVED$
@@ -543,7 +589,7 @@ During execution, every node $n \in V$ is in one of five states drawn from $\mat
 
 \begin{theorem}[Determinism]
 \label{thm:executor-determinism}
-Let $\NodeProc_\theta$ be a deterministic function of its input. For any well-formed notion DAG $G$ and leaf assignment $\sigma$, the value assignment returned by \Cref{alg:gsre} is uniquely determined by $G$, $\sigma$, and $\theta$.
+Let $\NodeProc_\theta$ be a deterministic function of its input. For any well-formed operation DAG $G$ and leaf assignment $\sigma$, the value assignment returned by \Cref{alg:gsre} is uniquely determined by $G$, $\sigma$, and $\theta$.
 \end{theorem}
 
 \begin{theorem}[Order independence]
@@ -575,6 +621,11 @@ Suppose $\NodeProc_\theta$ has per-invocation error rate $\le \eps$ and errors a
 \label{thm:executor-local-context}
 For any two well-formed DAGs $G, G'$ and any nodes $n \in V_G$, $n' \in V_{G'}$ with the same local context $(\tau_n, \Spec_n, (v_p)_{p \in \Parents_n})$, the executor produces identical values.
 \end{theorem}
+
+\begin{corollary}[Depth generalisation under marginal invariance]
+\label{cor:ood-accuracy}
+Under marginal invariance of local contexts across depth (\Cref{thm:executor-local-context}) and the geometric decay of \Cref{thm:executor-decoupling}, the executor's expected accuracy on out-of-distribution depths is bounded below by a function depending only on the size distribution of the test graphs.
+\end{corollary}
 
 Proofs are direct from the structure of \Cref{alg:gsre} and parallel earlier treatments.
 
@@ -629,11 +680,6 @@ The structure-mapping engine: Algorithm and examples.
 M.~Lewis and M.~Mitchell.
 Evaluating the robustness of analogical reasoning in large language models.
 \emph{arXiv:2411.14215}, 2024.
-
-\bibitem{mitchell2024analogy}
-M.~Mitchell.
-Can large language models reason?
-\emph{AI Magazine}, 45(1), 2024.
 
 \bibitem{webb2023emergent}
 T.~Webb, K.~J. Holyoak, and H.~Lu.

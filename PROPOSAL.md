@@ -1,196 +1,148 @@
 # PROPOSAL: Notion-Based Reasoning System (NBRS)
 
-**Internal Research Roadmap**
+**Research Roadmap**
 
-**Status:** Track 1 design mature and approved for implementation. Tracks 2 and 3 are exploratory and will be refined based on Track 1 outcomes.
+**Status:** Architectural pivot complete. Empirical programme defined.
 
 ---
 
 ## Preamble
 
-This document describes a multi-stage investigation into neurosymbolic reasoning with explicit dependency graphs.
+The Notion-Based Reasoning System (NBRS) is a research programme on cross-domain procedural reasoning. Its central claim is that contemporary large language models fail at transfer — the ability to apply an abstract procedure learned in one domain to a structurally analogous problem in a different domain — because they do not factorise the *structure* of a problem from its *content*. NBRS proposes a neurosymbolic architecture that maintains an explicit, content-independent library of abstract procedures (*notions*), induced from few examples, stored as parameterised templates, and applied across domains via structure-mapping.
 
-- **Track 1** is a self-contained, falsifiable experiment testing whether explicit dependency tracking and recurrent module reuse improve compositional depth generalisation when a perfect reasoning graph is provided. It will be published as a standalone paper at a top ML venue, framed purely as a learning-to-execute study. The broader NBRS vision will appear only in a brief "Future Work" paragraph in that paper.
-- **Track 2** extends the executor with a neural policy that learns to construct reasoning graphs autonomously from a fixed set of primitive operations.
-- **Track 3** is a long-term research agenda exploring whether the system can invent its own primitive operations through experience.
+The architecture is informed by two convergent lines of evidence:
 
-This separation ensures that the rigorous Track 1 result is not diluted by speculative promises, while internally we maintain a coherent long-term direction.
+1. **Cognitive-map neuroscience.** The hippocampal–entorhinal system factorises structural codes (relational scaffolding) from sensory codes (content). The same grid-cell apparatus that supports spatial navigation supports navigation through abstract conceptual spaces. The Tolman–Eichenbaum Machine formalises this; the Constantinescu et al. "bird-space" study demonstrates it empirically in humans.
+2. **Structure-mapping theory.** Gentner's account of analogy as mappings of *relational structure* (not surface features), and its computational implementation in the Structure-Mapping Engine, predict exactly the kind of transfer that humans display and that LLMs lack.
 
----
+What is missing in current AI is an integration: an architecture that combines the abstraction power of cognitive-map-style factorisation, the procedural depth of program-induction-style library learning, and the perceptual breadth of LLM-style content processing. NBRS is that architecture.
 
-## 1. Vision and Motivation
-
-Current large language models simulate multi-step reasoning through autoregressive token prediction. This approach fails on tasks requiring precise compositional depth—counting, nested arithmetic, transitive inference—because reasoning is simulated rather than structurally implemented.
-
-We hypothesize that robust reasoning requires:
-
-1. **Explicit representation of dependency structure** between sub-problems.
-2. **Guaranteed argument availability** before any operation executes.
-3. **Recurrent reuse of a capacity-limited processor**, decoupling problem depth from the model's internal context length.
-
-The **Notion-Based Reasoning System (NBRS)** embodies these principles. A *notion* is a typed operation node in a directed acyclic graph (DAG). Reasoning proceeds by traversing the graph, executing each node only when all its parent values are resolved, using a small shared neural module applied repeatedly.
-
-The NBRS is intended to serve as a reasoning co-processor beside a language model—the language model handles perception and generation, while the NBRS performs precise multi-step reasoning.
+The full formal treatment is in [`docs/proof.pdf`](docs/proof.pdf). This document gives the research roadmap.
 
 ---
 
-## 2. Architectural Overview
+## 1. The Transfer Gap
 
-| Component | Track 1 | Track 2 | Track 3 |
-|-----------|---------|---------|---------|
-| Expansion grammar | Oracle, hand-crafted | Fixed schemas; policy selects and binds | Schemas augmented with learned primitives |
-| Traversal engine | Dependency-driven scheduler | Same | Same |
-| Node Processor (shared Transformer) | Trained per-primitive + end-to-end on depth-3 traces | Pre-trained, fine-tuned jointly with policy | Continually updated as primitives are added |
-| Graph Policy Network (GPN) | Not present | Neural policy: selects primitive type, binds arguments; trained via RL + limited bootstrapping | GPN can also propose new primitive schemas |
-| Search and backtracking | None | MCTS with learned value function; limited to linear chains initially | Extended search with meta-reasoning |
-| Primitive Library | Fixed set of ~15 primitives | Same fixed set | Grows via compositional compression and induction |
+Frontier LLMs underperform humans on tasks specifically designed to require abstract analogical transfer:
 
----
+- **Letter-string analogies in novel alphabets** (Lewis & Mitchell 2024): humans, including children, generalise robustly; GPT-class models collapse in proportion to alphabet unfamiliarity.
+- **ARC-AGI** (Chollet 2019, 2024): designed to require sample-efficient abstraction from a handful of grid examples. Even substantially-engineered LLM-based systems struggle on the harder subset.
+- **Raven's Progressive Matrices** and digit-pattern analogies (Webb et al. 2023): LLM performance drops sharply on stimuli unlikely in training data, while human performance is stable.
 
-## 3. Track 1: Compositional Execution Study
-
-**Goal:** Determine whether explicit dependency tracking and recurrent module reuse improve out-of-distribution depth generalisation over implicit processing of the same decomposition.
-
-**Status:** Design complete; implementation-ready.
-
-### 3.1 Research Question
-
-Given an oracle-supplied DAG specifying all operations, types, and dependencies, does a Graph-Structured Recurrent Executor (GSRE) that enforces argument availability and reuses a shared Transformer outperform (a) a weight-tied graph transformer with causal ancestor masking, and (b) a sequence transformer receiving the serialised DAG, on generalisation to graphs deeper than those seen during training?
-
-### 3.2 GSRE Architecture
-
-**Oracle Grammar:** A hand-written, deterministic module that expands a task specification into a complete DAG. Used only for data generation and input preparation; no model learns it.
-
-**Traversal Engine:** Maintains node states (`PENDING`, `READY`, `EXECUTING`, `RESOLVED`, `FAILED`). A node transitions to `READY` when all parents are `RESOLVED`. All ready nodes are batched and processed by the shared Node Processor. The engine guarantees strict dependency order.
-
-**Node Processor:** A 2-layer Transformer (~2M parameters). Input per node: type embedding, spec encoding, and resolved values of direct parents (formatted with delimiters). No history vector, no global graph embedding, no execution-order signal. Output: a resolution value via a type-appropriate head (regression, classification, or copy).
-
-**Input to all models:** The full DAG is provided in identical form. Text-to-graph translation is purely symbolic and transparent.
-
-### 3.3 Task Design
-
-**Primary dataset (Tier 5):** Sequential heterogeneous operation chains. Operations include `ADD_MOD`, `SUB_MOD`, `SHIFT_CHAR`, `SWAP_CASE`, `REVERSE`, `COMPARE`, `SELECT`.
-
-- Graph depth (chain length): 1–10.
-- Primitive input complexity held constant: numbers 0–100 (modulo prime 101), strings ≤5 characters.
-- **Training:** 100K instances of depth 1–3.
-- **In-distribution test:** 10K instances depth 1–3 (held-out).
-- **OOD test:** 10K instances each at depths 5, 7, 9, 10. Depth 4 held out for interpolation.
-
-### 3.4 Baselines
-
-- **B4-tied (primary):** Weight-tied graph transformer with causal ancestor masking. Same per-node inputs and output heads as GSRE. Nodes sorted by depth-first preorder; attention restricted to ancestors appearing earlier.
-- **B4 (unshared):** Same architecture, distinct per-layer parameters. Auxiliary ablation for weight tying.
-- **B5:** Sequence transformer receiving the serialised DAG as flat text. Two variants: decoder-only autoregressive trace generation, and encoder-decoder.
-- **GSRE-unshared:** GSRE variant with distinct parameters per recurrence step. Isolates weight sharing.
-- **B2/B3 (auxiliary):** Scratchpad models receiving only natural language. Demonstrate difficulty of learning decomposition; not primary comparisons.
-
-### 3.5 Training and Evaluation
-
-- **Phase 0:** Primitive pre-training on isolated samples within bounded ranges (numbers ≤50, strings ≤5).
-- **Phase 1:** Full-system training on depth-3 graphs with node-level supervision. Auxiliary losses at intermediate nodes.
-- **Metrics:** Exact-match accuracy (≤1% relative error for numerics); depth-stratified accuracy; OOD generalisation slope (average per-depth accuracy decline beyond depth 3). 95% confidence intervals over 5 seeds.
-
-### 3.6 Expected Outcomes and Interpretation
-
-- **GSRE > B4-tied:** Explicit dependency scheduling aids depth generalisation beyond weight tying alone.
-- **GSRE ≈ B4-tied:** Null hypothesis; implicit propagation suffices.
-- **Ablation patterns:** GSRE > GSRE-unshared indicates weight sharing matters; B4-tied > B4 indicates same for graph transformer.
-
-Either outcome is a valuable contribution.
-
-### 3.7 Publication Strategy
-
-Track 1 will be submitted as a standalone paper framed purely as a learning-to-execute investigation. The NBRS branding and longer vision will appear only in a short "Future Work" paragraph.
+The failure mode is consistent: LLMs match on surface features, not on relational structure. Where the abstract pattern requires a content-independent representation, the model has nothing to fall back on.
 
 ---
 
-## 4. Track 2: Learned Decomposition with a Fixed Primitive Set
+## 2. Architectural Hypothesis
 
-**Goal:** Remove the oracle grammar; enable the system to autonomously construct the reasoning graph given a problem goal and a known set of primitive operations.
+NBRS hypothesises that the transfer gap is closed by an architecture with three structural commitments:
 
-### 4.1 Scope
+1. **Structure–content factorisation.** The relational scaffold of a problem is represented separately from its content. Notions are content-independent templates; bindings combine them with content at instantiation time.
+2. **Explicit notion library.** Transferable procedures are stored as first-class objects in a growing library, induced from successful traces, not entangled in network weights.
+3. **Structure-mapping at application time.** Selecting a notion to apply to a new problem is a structural-alignment operation, not a surface-similarity lookup.
 
-Track 2 addresses neural program synthesis with a known DSL (the primitive library). It is deliberately scoped:
+The architecture is a five-component system (full specification in `docs/proof.pdf`):
 
-- Primitive library is fixed (same ~15 operations from Track 1).
-- Tasks are initially linear chains (Tier 5 style).
-- No invention of new primitives.
+| Component | Role |
+|-----------|------|
+| **Content layer** (frontier LLM) | Parse problems, supply values, generate output. No multi-step reasoning. |
+| **Structure extractor** | Convert parsed problems into typed relational graphs. |
+| **Notion library** | Store parameterised relational templates with type, value, and operator variables. |
+| **Analogy engine** | Match problem graphs to notions via structural alignment; produce bindings. |
+| **Execution substrate** (GSRE) | Deterministically run instantiated notion graphs with the standard executor guarantees (determinism, termination, soundness). |
 
-This is a proof-of-concept for learned composition.
-
-### 4.2 Graph Policy Network (GPN)
-
-A neural module (lightweight Transformer) that observes the current partial graph and outputs an action.
-
-**State representation:**
-- Goal embedding from problem specification.
-- Per-node: type, state, and resolved value if available.
-- Value pool: all currently resolved values available for binding.
-
-**Action space (precisely defined):**
-1. Select a `PENDING` node with unsatisfied arguments.
-2. Choose a primitive type τ from the library whose output type matches.
-3. Instantiate τ's fixed expansion schema (template specifying required child slots).
-4. Bind each child slot to either an existing resolved value or a new sub-goal node (becomes `PENDING`).
-5. Optionally issue `FAIL` to trigger backtracking.
-
-**Training:**
-- **Bootstrapping (optional):** Brief behavior cloning on problems where oracle traces exist (depth 1–3), to accelerate early learning.
-- **Primary training:** Reinforcement learning with sparse reward (+1 for correct final answer). Policy gradient (PPO) with a learned value function trained on the same sparse signal.
-- **Curriculum:** Increase chain length progressively.
-
-**Search:** MCTS using the GPN as policy prior and value function. When a dead end is reached, the search backtracks to the most recent untried alternative. Branching factor is limited by library size.
-
-### 4.3 Baselines
-
-- Direct sequence-to-sequence model (no intermediate reasoning).
-- Scratchpad Transformer generating text reasoning steps.
-- Random expansion policy (ablates learned policy).
-
-### 4.4 Risks Acknowledged
-
-- **Sparse reward:** Training may be unstable. Intermediate milestone signals will be added only if necessary and fully documented.
-- **Scalability:** Action space size limits extension to deep branching DAGs. Linear chains are a proof-of-concept; general DAGs are future work.
-- **Dependence on Node Processor:** GPN assumes correct Node Processor execution. Track 1's characterisation of processor limits will inform design.
-
-Track 2 will be pursued only after Track 1 validates the execution architecture.
+A sixth component, **consolidation**, periodically abstracts new notions from successful traces and adds them to the library — analogous to hippocampal replay.
 
 ---
 
-## 5. Track 3: Toward Autonomous Primitive Invention
+## 3. Empirical Programme
 
-**Vision:** Enable the NBRS to expand its own primitive library, composing known operations into new abstractions and ultimately inventing novel operations.
+The architecture's claims are empirical. The research programme is organised around two cross-domain transfer demonstrations chosen to test the central hypothesis directly, plus diagnostics that localise failure when it occurs.
 
-### 5.1 Core Research Challenges
+### Demonstration 1: ARC-AGI subset
 
-Track 3 is a long-term research agenda, not a scheduled project phase. Fundamental unsolved problems include:
+**Task.** Each ARC-AGI task provides 2–5 input/output grid pairs demonstrating an abstract transformation; the system must apply the transformation to a held-out input.
 
-1. **Subgraph abstraction and parameterisation.** Identifying reusable subgraphs in successful traces requires scalable graph-isomorphism detection and generalisation (replacing constants with typed parameters).
-2. **Neural execution of novel primitives.** Adding a new primitive requires the shared Node Processor to learn it without forgetting prior ones. Continual learning for multi-task Transformers remains open.
-3. **Verification of invented primitives.** A newly proposed operation must be validated. Without an external oracle, the system must generate reliable test cases automatically.
-4. **Search vs. abstraction trade-off.** When to search with existing primitives vs. invent a new one involves meta-reasoning.
-5. **Symbolic-neural interface stability.** When the system modifies its own operation schemas, the clean separation between symbolic scheduling and neural execution becomes recursive.
+**Why it matters.** Chollet designed ARC-AGI specifically to require the kind of sample-efficient abstraction that NBRS is built around. LLM-based systems systematically underperform on this benchmark. A successful demonstration would constitute a public, leaderboard-comparable result.
 
-### 5.2 Possible Starting Points
+**Scope.** Target a subset of ARC tasks expressible as compositions of grid-level primitives (rotate, reflect, recolour, fill, count, replicate, translate, mask, overlay). The notion-induction layer mines transformations from each task's demonstration examples; the analogy engine binds the mined notion to the held-out test input.
 
-- **Hybrid library learning:** Restrict to simple arithmetic or string functions with tractable formal semantics.
-- **Neural module networks with introspection:** A meta-controller that monitors Node Processor failures and proposes new sub-networks trained on failure examples.
-- **Benchmarks for creative reasoning:** Datasets requiring non-obvious primitive compositions, measuring whether the system can ever succeed without human-provided primitives.
+**Baselines.** Frontier LLM with chain-of-thought, frontier LLM with retrieval, NBRS ablations (library disabled; analogy engine replaced by random selection), ARC Prize leaderboard for context.
 
-Track 3 will be refined as Track 2 results and external advances (program synthesis, continual learning, library learning) mature. No timeline is attached.
+**Success criteria.**
+- *Minimum:* match frontier-LLM accuracy on the subset with substantially less compute.
+- *Aspirational:* exceed frontier LLM, particularly on tasks classified as "hard".
+- *Interpretive:* demonstrate that notions induced from one subset of tasks transfer to a held-out subset whose tasks were never used in induction.
+
+### Demonstration 2: Cross-discipline scientific equilibrium analogy
+
+**Task.** Train the notion library on mechanical-equilibrium problems (force balance, springs at rest, lever arms, fluid pressures). Test on novel problems from three unrelated disciplines that share the abstract equilibrium structure but no shared surface content.
+
+**Why it matters.** This is the ambitious test of the architecture's central claim — that a notion learned in one field can apply, without retraining, to a structurally analogous problem in a different field. It is the capability most closely identified with general intelligence in the cognitive-science literature.
+
+**The structural pattern.** Identify opposing influences expressed as functions of a quantity; set them equal at the equilibrium point; solve. The notion `EQUILIBRIUM(α₊, α₋, x)` instantiates differently in each domain but is the same notion in the library.
+
+**Test problems.**
+- Supply–demand market equilibrium (price-clearing).
+- Chemical equilibrium under perturbation (Le Chatelier-style shift).
+- Predator–prey steady state (Lotka–Volterra fixed point).
+- Nash equilibrium in a 2-player normal-form game.
+
+**Baselines.** Same as Demonstration 1, plus a frontier LLM with explicit cross-domain-analogy prompt scaffolding.
+
+**Success criteria.**
+- *Minimum:* exceed the frontier-LLM baseline on at least one of the four test domains while not regressing on within-discipline (mechanical) problems.
+- *Aspirational:* exceed the frontier LLM on all four, with a library that included no economic, chemical, biological, or game-theoretic training examples.
+- *Interpretive:* any negative result must localise to a specific component (parser, analogy engine, executor) via the diagnostic measurements below.
+
+### Diagnostics
+
+Both demonstrations are accompanied by:
+
+- **Notion-induction efficiency.** Learning curve: traces required per notion to reach the verification threshold.
+- **Analogy-engine accuracy.** Per-test breakdown into wrong-notion, wrong-binding, no-match.
+- **Per-primitive error rate and correlation structure** on the executor, calibrating the depth-decoupling theorem.
+- **Marginal-invariance diagnostic** (KL / MMD divergence between training and test context marginals), calibrating the depth-generalisation corollary.
+- **Notion-library ablation.** Performance of NBRS with empty library vs. random notion selection vs. full library, attributing performance to the right components.
+
+---
+
+## 4. Path of Work
+
+The empirical programme decomposes naturally into work phases. Phases are intentionally serial: each unlocks the next.
+
+| Phase | Deliverable | Gating question |
+|-------|-------------|-----------------|
+| **0. Infrastructure** | Executor (GSRE) implementation; primitive library for grid operations; toy data generator for sanity tests. | Does the executor faithfully implement the formal semantics? |
+| **1. Notion definition + instantiation** | Parameterised notion data structure; binding mechanism; instantiation pipeline. | Can a hand-written notion be cleanly instantiated and executed? |
+| **2. Analogy engine v0** | Neural matcher that takes a problem graph and a notion and proposes a binding. Trained on synthetic structure-matched pairs. | Does the matcher recover correct bindings on synthetic data? |
+| **3. Notion induction v0** | Compositional-compression pipeline that mines candidate notions from a trace corpus. | Does a hand-crafted toy corpus yield the expected notion (e.g. `FOLD`)? |
+| **4. ARC-AGI Demonstration** | Full pipeline against the chosen ARC subset, with baselines and diagnostics. | Does NBRS match or exceed frontier-LLM performance? |
+| **5. Equilibrium Demonstration** | Cross-discipline transfer pipeline. | Does NBRS transfer notions across scientific disciplines? |
+| **6. Consolidation** | Replay-driven library growth from open-ended trace corpora. | Does the library improve with more usage, the way the architecture predicts? |
+
+A successful Phase 4 is a publishable result. A successful Phase 5 is a contribution to the literature on general intelligence. Phase 6 is the long-run autonomous-growth story.
+
+---
+
+## 5. Open Problems and Risks
+
+The architecture is not a guaranteed solution. The hard problems are real and identified:
+
+- **Notion induction in non-trivial domains is open.** DreamCoder demonstrates library learning works for restricted DSLs; whether it scales to the typed-parameterised notions NBRS requires is unknown.
+- **Structure-mapping in learned representations is open.** Classical SME-style matching works on symbolic representations; doing it over learned embeddings is novel research.
+- **Structure-extraction quality bounds everything.** If the LLM-driven parser produces noisy problem graphs, the analogy engine has nothing to work with. This is the most likely failure mode.
+- **Continual learning of the executor's primitives** (stability vs. plasticity) is unresolved. The procedural-notion mitigation pushes this into the library, but does not eliminate it entirely.
+- **No empirical validation yet.** The architecture is theoretically motivated and architecturally specified. Whether it survives contact with training is what the empirical programme tests.
+
+Each of these is an honest research risk, with a documented failure-diagnosis pathway and a clear localisation in the architecture's components.
 
 ---
 
 ## 6. Summary
 
-The NBRS roadmap charts a path from a concrete, falsifiable hypothesis about explicit dependency tracking to an ambitious vision of autonomous compositional reasoning.
+NBRS targets the transfer gap that most distinguishes contemporary LLMs from human general intelligence. Its architectural commitment — structure–content factorisation with an explicit, growing notion library and a structure-mapping analogy engine — is grounded in cognitive neuroscience and classical analogical-reasoning theory. The empirical programme is direct: two cross-domain transfer demonstrations, one on a public benchmark (ARC-AGI) and one on cross-discipline scientific analogy, each accompanied by diagnostics that localise failure.
 
-- **Track 1** is a rigorous, implementation-ready experiment that will yield a valuable publication and empirical foundation.
-- **Track 2** extends the architecture toward autonomous decomposition, with scoped goals and acknowledged challenges.
-- **Track 3** outlines fundamental research questions for long-term exploration.
+If the programme succeeds, NBRS will have demonstrated a computational realisation of cross-domain procedural transfer, which is the capability cognitive science has long identified as central to general intelligence and which contemporary LLMs do not exhibit. If it fails, the diagnostics localise the failure to a specific architectural component, and the research direction is correspondingly refined.
 
-The programme aims to shift the paradigm of machine reasoning from token-level simulation to explicit, structural execution—one carefully validated step at a time.
-
-**Approved for implementation: Track 1.**  
-**Tracks 2 and 3 remain exploratory and will be refined based on Track 1 outcomes.**
+The formal foundations of the architecture are developed in [`docs/proof.pdf`](docs/proof.pdf). The empirical work is the next phase.

@@ -1,66 +1,84 @@
 # notion-space
 
-> **Notion-Based Reasoning System (NBRS)** — a research programme on neurosymbolic reasoning with explicit dependency graphs.
+> **Notion-Based Reasoning System (NBRS)** — a research programme on cross-domain procedural transfer via structure–content decomposition.
 
-This repository hosts the research proposal, theoretical foundations, and (in due course) the implementation of the NBRS programme. It is a planning repository at present: the design has been formalised, the experimental track has been approved, and code will land here as Track 1 is implemented.
+This repository hosts the research proposal, formal theory, and (in due course) the implementation of NBRS. The architecture is motivated by the cognitive-map factorisation observed in the hippocampal–entorhinal system and by the structure-mapping account of analogy. The empirical programme targets two cross-domain transfer demonstrations: ARC-AGI subset performance and cross-discipline scientific-equilibrium analogy.
 
 ---
 
 ## What is NBRS, in one paragraph?
 
-Modern large language models simulate multi-step reasoning by predicting tokens one at a time. This works for shallow problems and fails on deep ones: nested arithmetic, transitive inference, structured games. The NBRS hypothesis is that reasoning is not a sequence of tokens but a partial-order of operations — a typed directed acyclic graph (DAG) of *notions*, each a small operation that consumes typed inputs and produces a typed output. A tiny shared neural module (the *node processor*) is applied recurrently to each node once its arguments are ready. Because the architecture enforces dependency order by construction, the model never has to learn that constraint from data, and compositional depth is decoupled from neural capacity.
-
-NBRS is intended to live alongside a language model — the LM handles perception and language, NBRS handles precise multi-step reasoning.
+Contemporary large language models fail at *transfer* — applying an abstract procedure learned in one domain to a structurally analogous problem in a different domain. The diagnosis: standard transformers blend the *structure* of a problem (its relational scaffolding) with its *content* (the specific values, types, surface vocabulary) in a single representation, with no way to factor one from the other. NBRS proposes an architecture that maintains an explicit, content-independent library of abstract procedures — **notions**: parameterised relational templates over typed operations — induced from few examples, stored as transferable abstractions, and applied to new problems via structure-mapping. An LLM handles content (parsing, value supply, output generation); a structural layer maintains the notion library and selects, binds, and instantiates notions; instantiated notions execute on a deterministic typed-DAG executor (the GSRE).
 
 ---
 
-## Why this might matter
+## Why this matters
 
-If the hypothesis holds, it has three immediate consequences:
+If the hypothesis holds:
 
-1. **Depth generalisation by construction.** A small node processor trained on shallow graphs is theoretically expected to execute deeper graphs with only geometric degradation in correctness, with no growth in parameter count. The companion proof develops this argument formally as a *capacity–depth decoupling theorem*.
-2. **Interpretable execution traces.** Every reasoning step is a typed operation on named values. The trace of an NBRS execution is, by construction, a transparent computation graph rather than a vector of activations.
-3. **A path to learned reasoning beyond fixed primitives.** Tracks 2 and 3 of the programme propose, respectively, learning to construct the reasoning graph autonomously, and learning to extend the primitive library itself.
+1. **Cross-domain procedural transfer becomes mechanically explicit.** A notion learned from mechanical equilibrium problems applies, without retraining, to market equilibrium, chemical equilibrium, and Nash equilibrium problems — because the structural template is the same and only the bindings differ.
+2. **Sample-efficient abstraction.** The notion-induction process abstracts patterns from a handful of traces (the cognitive-map analogue is hippocampal replay), enabling the library to grow without massive retraining.
+3. **Localised failure attribution.** Every failure is attributable to a specific component: wrong notion selected, wrong binding constructed, executor error on a primitive, or type mismatch. Monolithic LLMs do not admit this kind of failure analysis.
 
-If the hypothesis does *not* hold — and Track 1 is designed to be a falsifiable test — that is also a meaningful contribution. It would tell us that the architectural complexity of explicit scheduling is not justified for compositional reasoning at the depths we tested, and that simpler weight-tied attention-masked graph transformers already capture the relevant inductive bias.
+The architecture is grounded in two converging lines of evidence:
 
----
+- **Cognitive-map neuroscience.** The Tolman–Eichenbaum Machine (Whittington et al., *Cell* 2020) shows hippocampal–entorhinal circuits factor structure from content. Constantinescu et al. (*Science* 2016) demonstrate the same grid-cell apparatus organises conceptual spaces, not just physical ones.
+- **Structure-mapping theory.** Gentner's account of analogy as relational alignment (1983), implemented in the Structure-Mapping Engine, predicts exactly the transfer humans display and LLMs lack.
 
-## The three tracks
-
-| Track | Status | Question |
-|-------|--------|----------|
-| **1. Compositional execution study** | *Approved, implementation-ready* | Given a perfect reasoning DAG, does explicit dependency scheduling + recurrent neural reuse improve out-of-distribution depth generalisation vs. weight-tied graph transformers and sequence transformers? |
-| **2. Learned decomposition** | *Exploratory* | Can a neural policy learn to construct reasoning DAGs autonomously from a fixed primitive library, trained by RL + MCTS? |
-| **3. Primitive invention** | *Open research agenda* | Can the system extend its own primitive library — abstracting reusable subgraphs and inventing new operations through experience? |
-
-The separation matters: Track 1 is a self-contained, falsifiable experiment that will be published as a standalone learning-to-execute study. The broader NBRS vision will appear there only as a brief "Future Work" paragraph. Tracks 2 and 3 will be refined based on Track 1 outcomes.
-
-For the long form, read [PROPOSAL.md](PROPOSAL.md).
+The proof in [`docs/proof.pdf`](docs/proof.pdf) develops the formal theory.
 
 ---
 
 ## Architecture in 30 seconds
 
 ```mermaid
-flowchart TD
-    Q["Task specification"]
-    E["DAG construction<br/><sub>oracle grammar, or a learned Graph Policy Network</sub>"]
-    T["Traversal Engine<br/><sub>PENDING → READY → EXECUTING → RESOLVED</sub><br/><sub>hard-gated by parent state</sub>"]
-    N["Node Processor<br/><sub>shared Transformer, reused across all nodes</sub>"]
-    A["Answer"]
+flowchart LR
+    Q["Problem<br/><sub>natural language</sub>"]
+    C["Content layer<br/><sub>LLM: parse + generate</sub>"]
+    S["Structure<br/>extractor"]
+    L["Notion library<br/><sub>parameterised templates</sub>"]
+    A["Analogy engine<br/><sub>structure-mapping</sub>"]
+    E["Execution<br/>substrate<br/><sub>GSRE</sub>"]
+    R["Answer"]
+    Con["Consolidation<br/><sub>replay-driven<br/>library growth</sub>"]
 
-    Q --> E
-    E -- "typed DAG" --> T
-    T -- "per node: (type, spec, parent values)" --> N
-    N -- "resolved value" --> A
+    Q --> C
+    C -- "parsed entities" --> S
+    S -- "problem graph" --> L
+    L -- "matched notion + binding" --> A
+    A -- "instantiated DAG" --> E
+    E -- "result" --> C
+    C -- "natural-language output" --> R
+    E -- "trace" --> Con
+    Con -- "new notions" --> L
 ```
 
-The key architectural commitments:
+The five core components, each with a single responsibility:
 
-- A node only executes when **all** of its parents are resolved. This is enforced by the state machine, not by attention.
-- The node processor's input is **only**: the primitive type, the spec, and the resolved values of the direct parents. No global graph embedding. No history vector. No depth signal.
-- The same parameters are used at every node, every step. Depth is unrolled in time, not in parameters.
+| Component | Role |
+|-----------|------|
+| **Content layer** (LLM) | Parse problems, supply values, generate output. No multi-step reasoning. |
+| **Structure extractor** | Convert parsed problems into typed relational graphs. |
+| **Notion library** | Store parameterised relational templates (type, value, and operator variables). |
+| **Analogy engine** | Match problem graphs to notions via structural alignment. |
+| **Execution substrate** (GSRE) | Deterministically run instantiated notion graphs. |
+
+A sixth component, **consolidation**, periodically abstracts new notions from successful traces — the hippocampal-replay analogue.
+
+---
+
+## The empirical programme
+
+Two cross-domain transfer demonstrations, each chosen to test the central hypothesis directly.
+
+| Demonstration | What's tested | Headline claim |
+|---------------|--------------|----------------|
+| **ARC-AGI subset** | Whether mined notions transfer from one set of ARC tasks to a held-out set. | Match or exceed frontier-LLM performance on the chosen subset; ablations attribute the win to the notion library. |
+| **Scientific equilibrium analogy** | Whether a notion induced from mechanical-equilibrium problems applies to market, chemical, predator–prey, and Nash equilibrium problems. | Substantively higher cross-discipline transfer than frontier-LLM baselines, with no economic/chemical/biological/game-theoretic training examples. |
+
+Diagnostics accompany each: notion-induction efficiency curves, analogy-engine accuracy breakdowns, per-primitive error rate and correlation structure on the executor, marginal-invariance divergence, and library-ablation studies.
+
+The long form is in [`PROPOSAL.md`](PROPOSAL.md).
 
 ---
 
@@ -69,23 +87,28 @@ The key architectural commitments:
 ```
 notion-space/
 ├── README.md               ← you are here
-├── PROPOSAL.md             ← the research roadmap (the canonical proposal)
+├── PROPOSAL.md             ← research roadmap (the canonical proposal)
 └── docs/
-    ├── proof.tex           ← formal theory: definitions, theorems, proofs
+    ├── proof.tex           ← formal theory (LaTeX source)
     └── proof.pdf           ← compiled PDF (run tectonic to regenerate)
 ```
 
-When code lands, the expected structure will be:
+When code lands, the expected structure is:
 
 ```
 notion-space/
 ├── nbrs/                   ← Python package
-│   ├── primitives/         ← primitive library and oracle semantics
-│   ├── traversal/          ← the state-machine executor (Algorithm 1)
-│   ├── node_processor/     ← the shared neural module
-│   ├── data/               ← Tier 5 task generator
-│   └── baselines/          ← B4-tied, B4 unshared, B5
-├── experiments/            ← training + eval scripts for Track 1
+│   ├── executor/           ← GSRE: the typed-DAG executor (Algorithm A.1)
+│   ├── primitives/         ← primitive library + oracle semantics
+│   ├── notions/            ← notion data structure, instantiation, composition
+│   ├── extractor/          ← LLM-backed structure extractor
+│   ├── analogy/            ← structure-mapping analogy engine
+│   ├── consolidation/      ← replay-driven library growth
+│   └── content/            ← LLM content layer wrapper
+├── benchmarks/
+│   ├── arc/                ← ARC-AGI subset adapter + harness
+│   └── equilibrium/        ← cross-discipline equilibrium tasks
+├── experiments/            ← training + eval scripts
 ├── tests/
 └── pyproject.toml
 ```
@@ -97,20 +120,20 @@ notion-space/
 You probably want, in order:
 
 1. **[README.md](README.md)** *(this file)* — five-minute orientation.
-2. **[PROPOSAL.md](PROPOSAL.md)** — the human-readable research roadmap. The three tracks, their goals, scopes, baselines, and expected outcomes. Approximately 20-minute read.
-3. **[docs/proof.pdf](docs/proof.pdf)** — the mathematical theory. Formal definitions of the typed DAG, the executor's operational semantics, the four core theorems (determinism, order independence, termination, soundness against the oracle), expressivity containment against a weight-tied graph transformer and a sequence transformer, the capacity–depth decoupling result, the local-context invariance principle and its consequences for depth generalisation, an MDP formulation for autonomous graph construction, and the formal statement of the library-extension problem.
+2. **[PROPOSAL.md](PROPOSAL.md)** — the research roadmap. Architectural hypothesis, the two empirical demonstrations with scope and success criteria, work phases, open problems. Approximately 20-minute read.
+3. **[docs/proof.pdf](docs/proof.pdf)** — the formal theory. Definitions of notions, instantiation, structural binding, and analogical mapping; the architectural specification; execution guarantees inherited from the GSRE; the cross-domain transfer property; the full empirical programme.
 
-If you only have time for one section, read **§3 (The Graph-Structured Recurrent Executor)** and **§5 (Information-Theoretic Properties)**. Those two contain the load-bearing results.
+If you only have time for two sections of the proof, read **§5 (Architecture)** for the system specification and **§10 (Empirical Programme)** for the headline demonstrations. The cognitive-map and structure-mapping motivation lives in §1–2; the formal preliminaries and executor inheritance are in §3–7.
 
 ---
 
 ## Building the proof PDF
 
-The proof is written in standard LaTeX and compiles cleanly with [Tectonic](https://tectonic-typesetting.github.io/), which downloads the packages it needs on first use.
+The proof is standard LaTeX and compiles cleanly with [Tectonic](https://tectonic-typesetting.github.io/), which downloads required packages on first use.
 
 ```bash
 # install once
-brew install tectonic            # macOS
+brew install tectonic           # macOS
 # or follow instructions for your platform
 
 # compile
@@ -118,9 +141,9 @@ cd docs
 tectonic proof.tex
 ```
 
-This produces `docs/proof.pdf`. The pre-compiled PDF is committed to the repository so casual readers do not need a LaTeX toolchain.
+This produces `docs/proof.pdf`. The pre-compiled PDF is committed so casual readers do not need a LaTeX toolchain.
 
-A traditional `pdflatex` or `latexmk` toolchain works equivalently if you have one installed:
+A traditional `pdflatex` or `latexmk` toolchain works equivalently:
 
 ```bash
 cd docs && latexmk -pdf proof.tex
@@ -132,35 +155,35 @@ cd docs && latexmk -pdf proof.tex
 
 | Milestone | State |
 |-----------|-------|
-| Proposal written and reviewed | ✅ done |
-| Theoretical foundations formalised | ✅ done |
-| Track 1 design approved for implementation | ✅ done |
-| Track 1 data generator (Tier 5) | ⏳ pending |
-| Track 1 GSRE implementation | ⏳ pending |
-| Track 1 baselines ($B_4$-tied, $B_4$ unshared, $B_5$) | ⏳ pending |
-| Track 1 training runs (5 seeds) | ⏳ pending |
-| Track 1 paper draft | ⏳ pending |
-| Track 2 design refinement | ⏳ blocked on Track 1 outcomes |
-| Track 3 problem decomposition | ⏳ blocked on Track 2 progress |
+| Architectural pivot to structure–content factorisation | ✅ done |
+| Formal theory of notions, instantiation, transfer | ✅ done |
+| Empirical programme defined (ARC-AGI + equilibrium analogy) | ✅ done |
+| Executor (GSRE) reference implementation | ⏳ pending |
+| Notion data structure + instantiation pipeline | ⏳ pending |
+| Analogy engine v0 (synthetic data training) | ⏳ pending |
+| Notion induction v0 (toy corpus) | ⏳ pending |
+| ARC-AGI demonstration | ⏳ blocked on v0 components |
+| Scientific equilibrium demonstration | ⏳ blocked on ARC demonstration |
+| Consolidation loop (autonomous library growth) | ⏳ long-term |
 
 ---
 
 ## A note on framing
 
-NBRS makes a *structural* claim: that explicit, hard, architectural enforcement of dependency order is qualitatively different from soft, learned, attention-based enforcement, and that the difference matters for compositional depth generalisation. This is not a claim about scale, and it is not a claim about emergent capabilities. The Track 1 experiment is designed to be small, controlled, and reproducible, with all confounders held constant across architectures.
+NBRS makes a *structural* claim: that the absence of an explicit content-independent layer is what prevents contemporary LLMs from doing the kind of cross-domain transfer humans do. The architecture is the proposed bridge. This is not a claim about scale, and it is not a claim about emergent capabilities at the frontier. It is an architectural commitment with falsifiable empirical predictions.
 
-If you are a reviewer or collaborator, the place to push back is on the theoretical framing in [docs/proof.pdf](docs/proof.pdf) — particularly the local-context invariance argument in §6 and the expressivity-containment proposition in §4. Empirical disagreement is welcome but, given that the experiment has not yet been run, premature.
+If you are a reviewer or collaborator, the right places to push back are: (i) on the formal commitments in `docs/proof.pdf`, particularly the structural-dominance proposition (§9.1) and the inherited correctness of instantiated notions (§6.2); (ii) on the choice of benchmarks (§10) and whether they cleanly test the transfer hypothesis. Empirical disagreement is welcome but, given that the experiments have not yet been run, premature.
 
 ---
 
 ## Citation
 
-A formal preprint will be released when Track 1 results are available. For now, please cite the repository:
+A formal preprint will follow the empirical results. For now, please cite the repository:
 
 ```
 @misc{nbrs2026,
-  title  = {Notion-Based Reasoning System (NBRS): A Research Roadmap},
-  author = {NBRS Working Group},
+  title  = {Notion-Based Reasoning System (NBRS): Cross-Domain Procedural Transfer via Structure--Content Decomposition},
+  author = {Aryan Gupta},
   year   = {2026},
   note   = {\url{https://github.com/aryan-cs/notion-space}}
 }
@@ -170,4 +193,4 @@ A formal preprint will be released when Track 1 results are available. For now, 
 
 ## License
 
-To be determined. Until a license file is added to this repository, treat the contents as "all rights reserved" with permission granted only for reading and academic discussion. A permissive open-source license will be added before any code is published.
+To be determined. Until a license file is added, treat the contents as "all rights reserved" with permission granted only for reading and academic discussion. A permissive open-source license will be added before any code is published.
