@@ -1,6 +1,8 @@
 # notion-space
 
 > **Notion-Based Reasoning System (NBRS)** — a research programme on cross-domain procedural transfer via structure–content decomposition.
+>
+> 📄 [Read the proof (PDF)](https://aryan-cs.github.io/notion-space/proof.pdf) · 📋 [Read the proposal](https://aryan-cs.github.io/notion-space/PROPOSAL.md) · 🗂️ [Source on GitHub](https://github.com/aryan-cs/notion-space)
 
 This repository hosts the research proposal, formal theory, and (in due course) the implementation of NBRS. The architecture is motivated by the cognitive-map factorisation observed in the hippocampal–entorhinal system and by the structure-mapping account of analogy. The empirical programme targets two cross-domain transfer demonstrations: ARC-AGI subset performance and cross-discipline scientific-equilibrium analogy.
 
@@ -25,7 +27,7 @@ The architecture is grounded in two converging lines of evidence:
 - **Cognitive-map neuroscience.** The Tolman–Eichenbaum Machine (Whittington et al., *Cell* 2020) shows hippocampal–entorhinal circuits factor structure from content. Constantinescu et al. (*Science* 2016) demonstrate the same grid-cell apparatus organises conceptual spaces, not just physical ones.
 - **Structure-mapping theory.** Gentner's account of analogy as relational alignment (1983), implemented in the Structure-Mapping Engine, predicts exactly the transfer humans display and LLMs lack.
 
-The proof in [`docs/proof.pdf`](docs/proof.pdf) develops the formal theory.
+The proof at [`proof.pdf`](https://aryan-cs.github.io/notion-space/proof.pdf) develops the formal theory.
 
 ---
 
@@ -78,7 +80,7 @@ Two cross-domain transfer demonstrations, each chosen to test the central hypoth
 
 Diagnostics accompany each: notion-induction efficiency curves, analogy-engine accuracy breakdowns, per-primitive error rate and correlation structure on the executor, marginal-invariance divergence, and library-ablation studies.
 
-The long form is in [`PROPOSAL.md`](PROPOSAL.md).
+The long form is in [`PROPOSAL.md`](https://aryan-cs.github.io/notion-space/PROPOSAL.md).
 
 ---
 
@@ -87,8 +89,8 @@ The long form is in [`PROPOSAL.md`](PROPOSAL.md).
 ```
 notion-space/
 ├── README.md               ← you are here
-├── PROPOSAL.md             ← research roadmap (the canonical proposal)
-└── docs/
+└── docs/                   ← served by GitHub Pages
+    ├── PROPOSAL.md         ← research roadmap (the canonical proposal)
     ├── proof.tex           ← formal theory (LaTeX source)
     └── proof.pdf           ← compiled PDF (run tectonic to regenerate)
 ```
@@ -120,8 +122,8 @@ notion-space/
 You probably want, in order:
 
 1. **[README.md](README.md)** *(this file)* — five-minute orientation.
-2. **[PROPOSAL.md](PROPOSAL.md)** — the research roadmap. Architectural hypothesis, the two empirical demonstrations with scope and success criteria, work phases, open problems. Approximately 20-minute read.
-3. **[docs/proof.pdf](docs/proof.pdf)** — the formal theory. Definitions of notions, instantiation, structural binding, and analogical mapping; the architectural specification; execution guarantees inherited from the GSRE; the cross-domain transfer property; the full empirical programme.
+2. **[PROPOSAL.md](https://aryan-cs.github.io/notion-space/PROPOSAL.md)** — the research roadmap. Architectural hypothesis, the two empirical demonstrations with scope and success criteria, work phases, open problems. Approximately 20-minute read.
+3. **[proof.pdf](https://aryan-cs.github.io/notion-space/proof.pdf)** — the formal theory. Definitions of notions, instantiation, structural binding, and analogical mapping; the architectural specification; execution guarantees inherited from the GSRE; the cross-domain transfer property; the full empirical programme.
 
 If you only have time for two sections of the proof, read **§5 (Architecture)** for the system specification and **§10 (Empirical Programme)** for the headline demonstrations. The cognitive-map and structure-mapping motivation lives in §1–2; the formal preliminaries and executor inheritance are in §3–7.
 

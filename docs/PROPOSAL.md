@@ -17,7 +17,7 @@ The architecture is informed by two convergent lines of evidence:
 
 What is missing in current AI is an integration: an architecture that combines the abstraction power of cognitive-map-style factorisation, the procedural depth of program-induction-style library learning, and the perceptual breadth of LLM-style content processing. NBRS is that architecture.
 
-The full formal treatment is in [`docs/proof.pdf`](docs/proof.pdf). This document gives the research roadmap.
+The full formal treatment is in [`proof.pdf`](https://aryan-cs.github.io/notion-space/proof.pdf). This document gives the research roadmap.
 
 ---
 
@@ -41,7 +41,7 @@ NBRS hypothesises that the transfer gap is closed by an architecture with three 
 2. **Explicit notion library.** Transferable procedures are stored as first-class objects in a growing library, induced from successful traces, not entangled in network weights.
 3. **Structure-mapping at application time.** Selecting a notion to apply to a new problem is a structural-alignment operation, not a surface-similarity lookup.
 
-The architecture is a five-component system (full specification in `docs/proof.pdf`):
+The architecture is a five-component system (full specification in [`proof.pdf`](https://aryan-cs.github.io/notion-space/proof.pdf)):
 
 | Component | Role |
 |-----------|------|
@@ -145,4 +145,4 @@ NBRS targets the transfer gap that most distinguishes contemporary LLMs from hum
 
 If the programme succeeds, NBRS will have demonstrated a computational realisation of cross-domain procedural transfer, which is the capability cognitive science has long identified as central to general intelligence and which contemporary LLMs do not exhibit. If it fails, the diagnostics localise the failure to a specific architectural component, and the research direction is correspondingly refined.
 
-The formal foundations of the architecture are developed in [`docs/proof.pdf`](docs/proof.pdf). The empirical work is the next phase.
+The formal foundations of the architecture are developed in [`proof.pdf`](https://aryan-cs.github.io/notion-space/proof.pdf). The empirical work is the next phase.
